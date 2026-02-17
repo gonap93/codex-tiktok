@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/clipcard.tsx","./src/components/clipmodal.tsx","./src/components/jobconfigpanel.tsx","./src/components/pipelinepanel.tsx","./src/components/setupinstructions.tsx","./src/components/themetoggle.tsx"],"version":"5.9.3"}

@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClipMaker | YouTube to Viral Clips</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&family=Montserrat:wght@500;700&family=Poppins:wght@500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #06121f;
+        --card: rgba(4, 16, 31, 0.75);
+        --text: #eaf7ff;
+        --muted: #9ec8df;
+        --accent: #ff6b35;
+        --accent-2: #00c2a8;
+        --ok: #16c47f;
+        --error: #ff5f5f;
+        --border: rgba(255, 255, 255, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 20% 20%, #0f3558 0%, transparent 45%),
+          radial-gradient(circle at 85% 0%, #234a3f 0%, transparent 35%),
+          linear-gradient(145deg, #04101d 0%, #031628 35%, #071425 100%);
+        min-height: 100vh;
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .shell { max-width: 1120px; margin: 0 auto; padding: 28px 18px 72px; }
+      .title {
+        margin: 0;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: clamp(2.5rem, 8vw, 5rem);
+        letter-spacing: 1px;
+        line-height: 0.95;
+      }
+      .subtitle { margin: 8px 0 22px; color: var(--muted); max-width: 760px; }
+
+      .grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px; }
+      @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        backdrop-filter: blur(6px);
+        padding: 16px;
+      }
+
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+      input[type="url"], input[type="number"], select {
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.22);
+        color: var(--text);
+        padding: 12px;
+        font-size: 0.95rem;
+      }
+      input[type="url"] { flex: 1 1 360px; min-width: 220px; }
+      select { width: 116px; }
+      input[type="number"] { width: 98px; }
+
+      button {
+        cursor: pointer;
+        border: none;
+        border-radius: 12px;
+        padding: 12px 14px;
+        color: white;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        background: linear-gradient(90deg, var(--accent), #f85f73);
+      }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .publish-btn {
+        margin-top: 12px;
+        width: 100%;
+        background: linear-gradient(90deg, #00b1ff, #00c892);
+      }
+      .regen-btn {
+        margin-top: 12px;
+        width: 100%;
+        background: linear-gradient(90deg, #304a63, #426786);
+      }
+      .restart-btn {
+        margin-top: 12px;
+        width: 100%;
+        background: linear-gradient(90deg, #8d3a4f, #c45a5a);
+      }
+
+      .alert {
+        margin-top: 10px;
+        padding: 9px 11px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 95, 95, 0.45);
+        background: rgba(150, 47, 54, 0.24);
+        color: #ffd6d6;
+        font-size: 0.85rem;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.9rem;
+      }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+      .progress-wrap {
+        margin-top: 12px;
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+      .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--accent-2), #8fff73);
+        transition: width 0.3s ease;
+      }
+
+      .logs { margin-top: 14px; max-height: 320px; overflow: auto; padding-right: 6px; }
+      .logs p { margin: 0 0 8px; color: #d7eefc; font-size: 0.9rem; }
+
+      .clips { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 12px; }
+      .clip {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(0, 0, 0, 0.28);
+      }
+      .clip-preview {
+        width: 100%;
+        aspect-ratio: 9 / 16;
+        object-fit: cover;
+        background: black;
+        cursor: pointer;
+        display: block;
+      }
+      .clip-preview.placeholder {
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.3));
+      }
+      .clip-body { padding: 10px; }
+      .clip-body h4 { margin: 0 0 6px; font-size: 0.9rem; line-height: 1.22; }
+      .clip-meta { margin: 0 0 9px; color: var(--muted); font-size: 0.8rem; }
+      .clip-actions { display: flex; gap: 8px; }
+
+      .review-btn {
+        flex: 1;
+        padding: 8px 6px;
+        font-size: 0.8rem;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .review-btn.active.approve { background: rgba(22, 196, 127, 0.22); border-color: rgba(22, 196, 127, 0.6); }
+      .review-btn.active.reject { background: rgba(255, 95, 95, 0.2); border-color: rgba(255, 95, 95, 0.6); }
+
+      .tag {
+        display: inline-flex;
+        margin-top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .empty { color: var(--muted); font-size: 0.93rem; }
+      .subtitle-preview-panel {
+        margin-top: 12px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .subtitle-preview-stage {
+        width: 172px;
+        aspect-ratio: 9 / 16;
+        border-radius: 10px;
+        overflow: hidden;
+        position: relative;
+        background:
+          radial-gradient(circle at 75% 25%, rgba(255,255,255,0.13), transparent 35%),
+          linear-gradient(170deg, #111a27 0%, #1f2c3f 45%, #2e3c4f 100%);
+      }
+      .subtitle-preview-caption {
+        position: absolute;
+        left: 56px;
+        right: 56px;
+        bottom: 46px;
+        text-align: center;
+        text-transform: uppercase;
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 2.2px;
+        line-height: 1.2;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 100;
+      }
+      .modal.show { display: flex; }
+      .modal-content {
+        width: min(92vw, 460px);
+        background: #081526;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 10px;
+      }
+      .modal video { width: 100%; aspect-ratio: 9 / 16; background: black; border-radius: 10px; }
+      .modal-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+      .close-btn { background: rgba(255, 255, 255, 0.12); padding: 8px 10px; font-size: 0.82rem; }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <h1 class="title">CLIPMAKER</h1>
+      <p class="subtitle">
+        Pega un link de YouTube, elige cantidad de clips y aprueba/rechaza cada uno antes de publicar
+        los seleccionados.
+      </p>
+
+      <div class="grid">
+        <section class="card">
+          <form id="jobForm">
+            <label for="youtubeUrl">Link de YouTube</label>
+            <div class="row" style="margin-top: 8px">
+              <input
+                id="youtubeUrl"
+                name="youtubeUrl"
+                type="url"
+                required
+                placeholder="https://www.youtube.com/watch?v=..."
+              />
+              <label for="clipsCount" style="font-size:.88rem;color:var(--muted)">Clips</label>
+              <select id="clipsCount" name="clipsCount">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12">12</option>
+              </select>
+              <label for="minClipSeconds" style="font-size:.88rem;color:var(--muted)">Min (s)</label>
+              <input id="minClipSeconds" name="minClipSeconds" type="number" min="5" max="300" value="12" />
+              <label for="maxClipSeconds" style="font-size:.88rem;color:var(--muted)">Max (s)</label>
+              <input id="maxClipSeconds" name="maxClipSeconds" type="number" min="5" max="300" value="95" />
+              <button type="submit">Generar clips</button>
+            </div>
+            <div class="row" style="margin-top: 10px">
+              <label for="subtitleFont" style="font-size:.88rem;color:var(--muted)">Fuente subs</label>
+              <select id="subtitleFont" name="subtitleFont">
+                <option value="Inter" selected>Inter</option>
+                <option value="Montserrat">Montserrat</option>
+                <option value="Poppins">Poppins</option>
+                <option value="Arial">Arial</option>
+              </select>
+              <label for="subtitlePadX" style="font-size:.88rem;color:var(--muted)">Pad X</label>
+              <input id="subtitlePadX" name="subtitlePadX" type="number" min="10" max="300" value="56" />
+              <label for="subtitlePadY" style="font-size:.88rem;color:var(--muted)">Pad Y</label>
+              <input id="subtitlePadY" name="subtitlePadY" type="number" min="10" max="300" value="46" />
+            </div>
+            <div class="subtitle-preview-panel">
+              <div class="row" style="justify-content: space-between; align-items: flex-end">
+                <div>
+                  <div style="font-size:.82rem;color:var(--muted);margin-bottom:6px">Preview subtitulos</div>
+                  <div class="subtitle-preview-stage" id="subtitlePreviewStage">
+                    <div class="subtitle-preview-caption" id="subtitlePreviewCaption">
+                      ESTE ES UN PREVIEW DE SUBTITULO
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+
+          <div style="margin-top: 16px">
+            <div class="status-pill">
+              <span class="dot" id="statusDot"></span>
+              <span id="statusText">Esperando job...</span>
+            </div>
+            <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+            <p id="stepText" class="empty" style="margin-top: 8px">Sin actividad.</p>
+            <p id="runtimeAlert" class="alert" style="display:none"></p>
+          </div>
+
+          <button id="restartBtn" class="restart-btn" disabled>Reiniciar proceso</button>
+          <button id="regenerateBtn" class="regen-btn" disabled>Regenerar clips</button>
+          <button id="publishBtn" class="publish-btn" disabled>Publicar aprobados</button>
+          <div class="logs" id="logs"></div>
+        </section>
+
+        <section class="card">
+          <h3 style="margin: 0 0 10px">Clips generados</h3>
+          <p class="empty" id="clipsHint">Los clips apareceran aca apenas se procesen.</p>
+          <div class="clips" id="clips"></div>
+        </section>
+      </div>
+    </main>
+
+    <div class="modal" id="videoModal">
+      <div class="modal-content">
+        <div class="modal-top">
+          <strong id="modalTitle" style="font-size:.92rem"></strong>
+          <button id="closeModalBtn" class="close-btn">Cerrar</button>
+        </div>
+        <video id="modalVideo" controls preload="metadata"></video>
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById("jobForm");
+      const progressBar = document.getElementById("progressBar");
+      const statusText = document.getElementById("statusText");
+      const stepText = document.getElementById("stepText");
+      const logs = document.getElementById("logs");
+      const clips = document.getElementById("clips");
+      const clipsHint = document.getElementById("clipsHint");
+      const statusDot = document.getElementById("statusDot");
+      const publishBtn = document.getElementById("publishBtn");
+      const restartBtn = document.getElementById("restartBtn");
+      const regenerateBtn = document.getElementById("regenerateBtn");
+      const runtimeAlert = document.getElementById("runtimeAlert");
+      const modal = document.getElementById("videoModal");
+      const modalVideo = document.getElementById("modalVideo");
+      const modalTitle = document.getElementById("modalTitle");
+      const closeModalBtn = document.getElementById("closeModalBtn");
+      const subtitleFont = document.getElementById("subtitleFont");
+      const subtitlePadX = document.getElementById("subtitlePadX");
+      const subtitlePadY = document.getElementById("subtitlePadY");
+      const subtitlePreviewCaption = document.getElementById("subtitlePreviewCaption");
+
+      let source = null;
+      let currentJobId = null;
+      let currentState = null;
+      let knownLogs = new Set();
+      let lastStateUpdateMs = 0;
+      let streamRetryCount = 0;
+
+      function setStatusColor(status) {
+        if (status === "completed") statusDot.style.background = "var(--ok)";
+        else if (status === "failed") statusDot.style.background = "var(--error)";
+        else if (status === "running") statusDot.style.background = "var(--accent)";
+        else statusDot.style.background = "var(--muted)";
+      }
+
+      function publishLabel(status) {
+        if (status === "publishing") return "Publicando";
+        if (status === "published") return "Publicado";
+        if (status === "failed") return "Fallo publicacion";
+        return "Sin publicar";
+      }
+
+      function showAlert(message) {
+        runtimeAlert.textContent = message;
+        runtimeAlert.style.display = "block";
+      }
+
+      function hideAlert() {
+        runtimeAlert.textContent = "";
+        runtimeAlert.style.display = "none";
+      }
+
+      function openModal(url, title) {
+        modalTitle.textContent = title || "Preview";
+        modalVideo.src = url;
+        modal.classList.add("show");
+        const playPromise = modalVideo.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(() => {});
+        }
+      }
+
+      function closeModal() {
+        modal.classList.remove("show");
+        modalVideo.pause();
+        modalVideo.removeAttribute("src");
+        modalVideo.load();
+      }
+
+      function readSubtitlePrefs() {
+        return {
+          subtitle_font_name: String(subtitleFont.value || "Inter"),
+          subtitle_margin_horizontal: Number(subtitlePadX.value || "56"),
+          subtitle_margin_vertical: Number(subtitlePadY.value || "46"),
+        };
+      }
+
+      function updateSubtitlePreview() {
+        const prefs = readSubtitlePrefs();
+        subtitlePreviewCaption.style.fontFamily = `'${prefs.subtitle_font_name}', sans-serif`;
+        subtitlePreviewCaption.style.left = `${prefs.subtitle_margin_horizontal}px`;
+        subtitlePreviewCaption.style.right = `${prefs.subtitle_margin_horizontal}px`;
+        subtitlePreviewCaption.style.bottom = `${prefs.subtitle_margin_vertical}px`;
+      }
+
+      function updatePublishButton(state) {
+        const approved = (state.clips || []).filter((clip) => clip.review_status === "approved");
+        const canPublish = state.status === "completed" && approved.length > 0;
+        publishBtn.disabled = !canPublish;
+        publishBtn.textContent = canPublish
+          ? `Publicar aprobados (${approved.length})`
+          : "Publicar aprobados";
+      }
+
+      function updateRegenerateButton(state) {
+        const clipsList = state.clips || [];
+        const allRejected = clipsList.length > 0 && clipsList.every((clip) => clip.review_status === "rejected");
+        const canRegenerate = state.status === "completed" && allRejected;
+        regenerateBtn.disabled = !canRegenerate;
+      }
+
+      function updateRestartButton(state) {
+        const canRestart = Boolean(currentJobId) && (state.status === "running" || state.status === "failed");
+        restartBtn.disabled = !canRestart;
+      }
+
+      function renderClips(state) {
+        const list = state.clips || [];
+        clips.innerHTML = "";
+        if (!list.length) {
+          clipsHint.style.display = "block";
+          return;
+        }
+        clipsHint.style.display = "none";
+
+        list.forEach((clip) => {
+          const article = document.createElement("article");
+          article.className = "clip";
+
+          const approveActive = clip.review_status === "approved" ? "active" : "";
+          const rejectActive = clip.review_status === "rejected" ? "active" : "";
+          const previewMarkup = clip.thumbnail_url
+            ? `<img class=\"clip-preview\" src=\"${clip.thumbnail_url}\" alt=\"Preview clip ${clip.index}\" />`
+            : `<div class=\"clip-preview placeholder\"></div>`;
+
+          article.innerHTML = `
+            ${previewMarkup}
+            <div class="clip-body">
+              <h4>${clip.index}. ${clip.title}</h4>
+              <p class="clip-meta">${clip.start.toFixed(1)}s - ${clip.end.toFixed(1)}s - ${clip.duration}s</p>
+              <div class="clip-actions">
+                <button data-clip-index="${clip.index}" data-approved="true" class="review-btn approve ${approveActive}">Aprobar</button>
+                <button data-clip-index="${clip.index}" data-approved="false" class="review-btn reject ${rejectActive}">No aprobar</button>
+              </div>
+              <span class="tag">${publishLabel(clip.publish_status)}</span>
+            </div>
+          `;
+
+          const preview = article.querySelector(".clip-preview");
+          preview.addEventListener("click", () => openModal(clip.url, `${clip.index}. ${clip.title}`));
+
+          article.querySelectorAll(".review-btn").forEach((button) => {
+            button.addEventListener("click", async (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              const clipIndex = Number(button.dataset.clipIndex);
+              const approved = button.dataset.approved === "true";
+              try {
+                await updateClipReview(clipIndex, approved);
+              } catch (error) {
+                stepText.textContent = error.message;
+              }
+            });
+          });
+
+          clips.appendChild(article);
+        });
+      }
+
+      function renderState(state) {
+        currentState = state;
+        const parsed = Date.parse(state.updated_at || "");
+        lastStateUpdateMs = Number.isNaN(parsed) ? Date.now() : parsed;
+        streamRetryCount = 0;
+        setStatusColor(state.status);
+        statusText.textContent = `Estado: ${state.status}`;
+        stepText.textContent = `${Math.round(state.progress || 0)}% - ${state.current_step || ""}`;
+        progressBar.style.width = `${state.progress || 0}%`;
+        if (state.requested_subtitle_font_name) subtitleFont.value = state.requested_subtitle_font_name;
+        if (typeof state.requested_subtitle_margin_horizontal === "number") {
+          subtitlePadX.value = String(state.requested_subtitle_margin_horizontal);
+        }
+        if (typeof state.requested_subtitle_margin_vertical === "number") {
+          subtitlePadY.value = String(state.requested_subtitle_margin_vertical);
+        }
+        updateSubtitlePreview();
+
+        if (state.error) {
+          const msg = `ERROR: ${state.error}`;
+          showAlert(msg);
+          if (!knownLogs.has(msg)) {
+            knownLogs.add(msg);
+            const p = document.createElement("p");
+            p.textContent = msg;
+            logs.prepend(p);
+          }
+        } else if (state.status !== "running") {
+          hideAlert();
+        }
+
+        (state.logs || []).forEach((line) => {
+          if (knownLogs.has(line)) return;
+          knownLogs.add(line);
+          const p = document.createElement("p");
+          p.textContent = line;
+          logs.prepend(p);
+        });
+
+        renderClips(state);
+        updatePublishButton(state);
+        updateRegenerateButton(state);
+        updateRestartButton(state);
+      }
+
+      async function startJob(youtubeUrl, clipsCount, minClipSeconds, maxClipSeconds, subtitlePrefs) {
+        const response = await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtube_url: youtubeUrl,
+            clips_count: clipsCount,
+            min_clip_seconds: minClipSeconds,
+            max_clip_seconds: maxClipSeconds,
+            subtitle_font_name: subtitlePrefs.subtitle_font_name,
+            subtitle_margin_horizontal: subtitlePrefs.subtitle_margin_horizontal,
+            subtitle_margin_vertical: subtitlePrefs.subtitle_margin_vertical,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || "No se pudo crear el job.");
+        }
+        return response.json();
+      }
+
+      async function updateClipReview(clipIndex, approved) {
+        if (!currentJobId) return;
+        const response = await fetch(`/api/jobs/${currentJobId}/clips/${clipIndex}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approved }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || "No se pudo actualizar el estado del clip.");
+        }
+        const state = await response.json();
+        renderState(state);
+      }
+
+      async function publishApproved() {
+        if (!currentJobId || !currentState) return;
+        publishBtn.disabled = true;
+        const response = await fetch(`/api/jobs/${currentJobId}/publish-approved`, { method: "POST" });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || "No se pudieron publicar los clips aprobados.");
+        }
+        const result = await response.json();
+        const summary = `Publicacion finalizada. OK=${result.published_count}, FAIL=${result.failed_count}`;
+        const p = document.createElement("p");
+        p.textContent = summary;
+        logs.prepend(p);
+      }
+
+      async function regenerateClips() {
+        if (!currentJobId) return;
+        const clipsCount = Number(document.getElementById("clipsCount").value || "4");
+        const minClipSeconds = Number(document.getElementById("minClipSeconds").value || "12");
+        const maxClipSeconds = Number(document.getElementById("maxClipSeconds").value || "95");
+        const subtitlePrefs = readSubtitlePrefs();
+        const response = await fetch(`/api/jobs/${currentJobId}/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clips_count: clipsCount,
+            min_clip_seconds: minClipSeconds,
+            max_clip_seconds: maxClipSeconds,
+            subtitle_font_name: subtitlePrefs.subtitle_font_name,
+            subtitle_margin_horizontal: subtitlePrefs.subtitle_margin_horizontal,
+            subtitle_margin_vertical: subtitlePrefs.subtitle_margin_vertical,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || "No se pudieron regenerar clips.");
+        }
+        const state = await response.json();
+        renderState(state);
+      }
+
+      async function restartProcess() {
+        if (!currentJobId) return;
+        const clipsCount = Number(document.getElementById("clipsCount").value || "4");
+        const minClipSeconds = Number(document.getElementById("minClipSeconds").value || "12");
+        const maxClipSeconds = Number(document.getElementById("maxClipSeconds").value || "95");
+        const subtitlePrefs = readSubtitlePrefs();
+        const response = await fetch(`/api/jobs/${currentJobId}/restart`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clips_count: clipsCount,
+            min_clip_seconds: minClipSeconds,
+            max_clip_seconds: maxClipSeconds,
+            subtitle_font_name: subtitlePrefs.subtitle_font_name,
+            subtitle_margin_horizontal: subtitlePrefs.subtitle_margin_horizontal,
+            subtitle_margin_vertical: subtitlePrefs.subtitle_margin_vertical,
+            use_cache: true,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || "No se pudo reiniciar el proceso.");
+        }
+        const state = await response.json();
+        renderState(state);
+        connectStream(currentJobId);
+      }
+
+      function connectStream(jobId) {
+        if (source) source.close();
+        source = new EventSource(`/api/jobs/${jobId}/stream`);
+        source.onmessage = (event) => {
+          const state = JSON.parse(event.data);
+          renderState(state);
+        };
+        source.onerror = () => {
+          streamRetryCount += 1;
+          if (currentState && (currentState.status === "completed" || currentState.status === "failed")) {
+            return;
+          }
+          if (streamRetryCount > 10) {
+            showAlert("Se perdio la conexion de updates. Usa 'Reiniciar proceso' para continuar.");
+            return;
+          }
+          showAlert("Conexion inestable con el stream. Reintentando...");
+          if (source) source.close();
+          setTimeout(() => {
+            if (currentJobId) connectStream(currentJobId);
+          }, 2500);
+        };
+      }
+
+      closeModalBtn.addEventListener("click", closeModal);
+      modal.addEventListener("click", (ev) => {
+        if (ev.target === modal) closeModal();
+      });
+
+      publishBtn.addEventListener("click", async () => {
+        try {
+          await publishApproved();
+        } catch (error) {
+          stepText.textContent = error.message;
+        }
+      });
+
+      regenerateBtn.addEventListener("click", async () => {
+        try {
+          await regenerateClips();
+        } catch (error) {
+          showAlert(error.message);
+          stepText.textContent = error.message;
+        }
+      });
+
+      restartBtn.addEventListener("click", async () => {
+        try {
+          await restartProcess();
+        } catch (error) {
+          showAlert(error.message);
+          stepText.textContent = error.message;
+        }
+      });
+
+      [subtitleFont, subtitlePadX, subtitlePadY].forEach((input) => {
+        input.addEventListener("input", updateSubtitlePreview);
+        input.addEventListener("change", updateSubtitlePreview);
+      });
+
+      setInterval(() => {
+        if (!currentState || currentState.status !== "running") return;
+        if (!lastStateUpdateMs) return;
+        const inactiveMs = Date.now() - lastStateUpdateMs;
+        if (inactiveMs > 180000) {
+          const inactiveSec = Math.floor(inactiveMs / 1000);
+          showAlert(`No hay avances hace ${inactiveSec}s. Podes reiniciar el proceso.`);
+          restartBtn.disabled = false;
+        }
+      }, 10000);
+
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const youtubeUrl = document.getElementById("youtubeUrl").value.trim();
+        const clipsCount = Number(document.getElementById("clipsCount").value || "4");
+        const minClipSeconds = Number(document.getElementById("minClipSeconds").value || "12");
+        const maxClipSeconds = Number(document.getElementById("maxClipSeconds").value || "95");
+        const subtitlePrefs = readSubtitlePrefs();
+        knownLogs = new Set();
+        logs.innerHTML = "";
+        clips.innerHTML = "";
+        clipsHint.style.display = "block";
+        stepText.textContent = "Creando job...";
+        progressBar.style.width = "0%";
+        statusText.textContent = "Estado: queued";
+        setStatusColor("queued");
+        publishBtn.disabled = true;
+        restartBtn.disabled = true;
+        regenerateBtn.disabled = true;
+        hideAlert();
+
+        try {
+          if (!Number.isFinite(minClipSeconds) || !Number.isFinite(maxClipSeconds)) {
+            throw new Error("Min y Max deben ser numericos.");
+          }
+          if (minClipSeconds < 5 || maxClipSeconds < 5) {
+            throw new Error("Min y Max deben ser >= 5 segundos.");
+          }
+          if (minClipSeconds > maxClipSeconds) {
+            throw new Error("La duracion minima no puede ser mayor a la maxima.");
+          }
+          if (subtitlePrefs.subtitle_margin_horizontal < 10 || subtitlePrefs.subtitle_margin_vertical < 10) {
+            throw new Error("Pad X/Y deben ser >= 10.");
+          }
+          const payload = await startJob(
+            youtubeUrl,
+            clipsCount,
+            minClipSeconds,
+            maxClipSeconds,
+            subtitlePrefs,
+          );
+          currentJobId = payload.job_id;
+          connectStream(payload.job_id);
+        } catch (error) {
+          statusText.textContent = "Estado: failed";
+          stepText.textContent = error.message;
+          setStatusColor("failed");
+        }
+      });
+
+      updateSubtitlePreview();
+    </script>
+  </body>
+</html>

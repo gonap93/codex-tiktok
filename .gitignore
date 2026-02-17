@@ -1,0 +1,11 @@
+.env
+postiz/.env
+postiz/.postiz.env
+__pycache__/
+*.pyc
+jobs/
+.DS_Store
+frontend/node_modules/
+frontend/dist/
+.venv/
+static/previews/

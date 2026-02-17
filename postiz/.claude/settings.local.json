@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(colima status:*)",
+      "Bash(docker info:*)",
+      "WebFetch(domain:docs.postiz.com)",
+      "Bash(colima start:*)",
+      "Bash(openssl rand:*)",
+      "Bash(docker compose down:*)",
+      "Bash(docker compose pull:*)",
+      "Bash(docker pull:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker image inspect:*)",
+      "Bash(curl:*)",
+      "WebSearch",
+      "WebFetch(domain:addrom.com)",
+      "WebFetch(domain:bababuilds.com)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(docker ps:*)"
+    ]
+  }
+}

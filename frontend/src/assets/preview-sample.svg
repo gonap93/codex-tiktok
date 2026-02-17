@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c314f"/>
+      <stop offset="55%" stop-color="#365f7f"/>
+      <stop offset="100%" stop-color="#4f7f90"/>
+    </linearGradient>
+    <radialGradient id="lightA" cx="0" cy="0" r="1" gradientTransform="translate(240 310) rotate(34) scale(470 390)">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lightB" cx="0" cy="0" r="1" gradientTransform="translate(830 1360) rotate(-20) scale(440 420)">
+      <stop offset="0%" stop-color="#9fe7ff" stop-opacity="0.17"/>
+      <stop offset="100%" stop-color="#9fe7ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#bg)"/>
+  <rect width="1080" height="1920" fill="url(#lightA)"/>
+  <rect width="1080" height="1920" fill="url(#lightB)"/>
+  <g opacity="0.18" fill="#ffffff">
+    <circle cx="123" cy="104" r="14"/>
+    <circle cx="1030" cy="189" r="9"/>
+    <circle cx="974" cy="1640" r="12"/>
+    <circle cx="110" cy="1710" r="8"/>
+  </g>
+</svg>

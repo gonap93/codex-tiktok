@@ -1,0 +1,7 @@
+title: ClipMaker
+description: Legal documents for ClipMaker
+theme: jekyll-theme-minimal
+baseurl: /codex-tiktok
+markdown: kramdown
+plugins:
+  - jekyll-seo-tag
