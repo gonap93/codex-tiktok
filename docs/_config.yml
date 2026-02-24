@@ -5,3 +5,5 @@ baseurl: /codex-tiktok
 markdown: kramdown
 plugins:
   - jekyll-seo-tag
+include:
+  - "*.txt"
