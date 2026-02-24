@@ -17,11 +17,13 @@ def render_subtitle_preview_image(
     settings: Settings,
     *,
     subtitle_font_name: str,
+    subtitle_font_size: int,
     subtitle_margin_horizontal: int,
     subtitle_margin_vertical: int,
     output_width: int,
     output_height: int,
     subtitle_text: str,
+    background_image_url: str | None = None,
 ) -> str:
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("No se encontro ffmpeg en PATH.")
@@ -33,12 +35,13 @@ def render_subtitle_preview_image(
         "font": subtitle_font_name,
         "font_file": settings.subtitle_font_file,
         "flat_white": True,
+        "background_image_url": background_image_url or "",
         "margin_h": subtitle_margin_horizontal,
         "margin_v": subtitle_margin_vertical,
         "width": output_width,
         "height": output_height,
         "text": subtitle_text.strip(),
-        "size": settings.subtitle_font_size,
+        "size": subtitle_font_size,
         "spacing": settings.subtitle_letter_spacing,
         "uppercase": settings.subtitle_uppercase,
     }
@@ -58,20 +61,41 @@ def render_subtitle_preview_image(
         srt_path,
         settings,
         subtitle_font_name=subtitle_font_name,
+        subtitle_font_size=subtitle_font_size,
         subtitle_margin_horizontal=subtitle_margin_horizontal,
         subtitle_margin_vertical=subtitle_margin_vertical,
         output_width=output_width,
         output_height=output_height,
         flat_white=True,
     )
+
+    if background_image_url:
+        bg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            background_image_url,
+            "-vf",
+            (
+                f"scale={output_width}:{output_height}:force_original_aspect_ratio=increase,"
+                f"crop={output_width}:{output_height},"
+                f"{subtitle_filter}"
+            ),
+            "-frames:v",
+            "1",
+            str(png_path),
+        ]
+        bg_result = subprocess.run(bg_cmd, capture_output=True, text=True)
+        if bg_result.returncode == 0:
+            return f"/static/previews/{png_path.name}"
+
     filter_chain = (
         f"color=c=#243f5b:s={output_width}x{output_height}:d=3,format=yuv420p,"
         "drawbox=x=0:y=0:w=iw:h=ih:color=#2f5878@0.3:t=fill,"
         "drawbox=x=0:y=0:w=iw:h=ih:color=#16283f@0.22:t=fill,"
         f"{subtitle_filter}"
     )
-
-    cmd = [
+    fallback_cmd = [
         "ffmpeg",
         "-y",
         "-f",
@@ -82,8 +106,8 @@ def render_subtitle_preview_image(
         "1",
         str(png_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
+    fallback_result = subprocess.run(fallback_cmd, capture_output=True, text=True)
+    if fallback_result.returncode != 0:
         srt_path.unlink(missing_ok=True)
-        raise RuntimeError(f"No se pudo generar preview exacto: {result.stderr.strip()}")
+        raise RuntimeError(f"No se pudo generar preview exacto: {fallback_result.stderr.strip()}")
     return f"/static/previews/{png_path.name}"

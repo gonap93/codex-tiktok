@@ -24,6 +24,7 @@ from app.services.state import (
     add_log,
     create_job,
     get_job,
+    list_jobs,
     set_progress,
     set_clip_publish_status,
     set_clip_review_status,
@@ -141,7 +142,18 @@ async def start_job(payload: JobCreateRequest) -> JobCreateResponse:
     requested_output_h = payload.output_height or settings.output_height
     requested_output_w, requested_output_h = _normalize_output_size(requested_output_w, requested_output_h)
     if requested_min > requested_max:
-        raise HTTPException(status_code=400, detail="La duracion minima no puede ser mayor que la maxima.")
+        requested_max = requested_min
+
+    requested_genre = (payload.content_genre or "").strip()
+    requested_moments_instruction = (payload.specific_moments_instruction or "").strip()
+    requested_ai_choose = payload.ai_choose_count
+    requested_subtitles_enabled = payload.subtitles_enabled
+    requested_subtitle_preset = (payload.subtitle_preset or "").strip()
+    requested_video_language = (payload.video_language or "es").strip() or "es"
+    requested_subtitle_font_size = payload.subtitle_font_size or 36
+
+    if requested_ai_choose:
+        requested_clips = 0  # signal to pipeline to auto-choose
 
     job = await create_job(
         youtube_url,
@@ -153,10 +165,23 @@ async def start_job(payload: JobCreateRequest) -> JobCreateResponse:
         requested_margin_v,
         requested_output_w,
         requested_output_h,
+        requested_content_genre=requested_genre,
+        requested_specific_moments_instruction=requested_moments_instruction,
+        requested_ai_choose_count=requested_ai_choose,
+        requested_subtitles_enabled=requested_subtitles_enabled,
+        requested_subtitle_preset=requested_subtitle_preset,
+        requested_video_language=requested_video_language,
+        requested_subtitle_font_size=requested_subtitle_font_size,
     )
     task = asyncio.create_task(run_job(job.job_id, youtube_url))
     _register_job_task(job.job_id, task)
     return JobCreateResponse(job_id=job.job_id)
+
+
+@app.get("/api/jobs")
+async def list_all_jobs() -> list[dict]:
+    jobs = await list_jobs()
+    return [j.model_dump(mode="json") for j in jobs]
 
 
 @app.get("/api/jobs/{job_id}")
@@ -181,6 +206,10 @@ async def stream_job(job_id: str) -> StreamingResponse:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15)
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    # Close the stream once the job reaches a terminal state
+                    status = event.get("status") if isinstance(event, dict) else None
+                    if status in ("completed", "failed"):
+                        break
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         finally:
@@ -198,12 +227,7 @@ async def review_clip(job_id: str, clip_index: int, payload: ClipReviewRequest) 
         raise HTTPException(status_code=404, detail="Clip no encontrado.")
 
     reason = (payload.rejection_reason or "").strip()
-    await set_clip_review_status(job_id, clip_index, payload.approved, reason if not payload.approved else None)
-    if payload.approved:
-        await add_log(job_id, f"Clip {clip_index} aprobado para publicacion.")
-    else:
-        suffix = f" Motivo: {reason}" if reason else ""
-        await add_log(job_id, f"Clip {clip_index} rechazado para publicacion.{suffix}")
+    await set_clip_review_status(job_id, clip_index, payload.approved, reason if payload.approved is False else None)
     updated = await get_job(job_id)
     assert updated is not None
     return updated.model_dump(mode="json")
@@ -230,6 +254,12 @@ async def regenerate_job(job_id: str, payload: RegenerateRequest) -> dict:
     if requested_min > requested_max:
         raise HTTPException(status_code=400, detail="La duracion minima no puede ser mayor que la maxima.")
 
+    regen_genre = (payload.content_genre or "").strip() or None
+    regen_moments_instruction = (payload.specific_moments_instruction or "").strip() or None
+    regen_ai_choose = payload.ai_choose_count
+    regen_video_language = (payload.video_language or "").strip() or None
+    regen_subtitle_font_size = payload.subtitle_font_size
+
     await update_job_requests(
         job_id,
         requested_clips_count=requested_clips,
@@ -240,6 +270,11 @@ async def regenerate_job(job_id: str, payload: RegenerateRequest) -> dict:
         requested_subtitle_margin_vertical=requested_margin_v,
         requested_output_width=requested_output_w,
         requested_output_height=requested_output_h,
+        requested_content_genre=regen_genre,
+        requested_specific_moments_instruction=regen_moments_instruction,
+        requested_ai_choose_count=regen_ai_choose,
+        requested_video_language=regen_video_language,
+        requested_subtitle_font_size=regen_subtitle_font_size,
     )
     await add_log(
         job_id,
@@ -271,6 +306,12 @@ async def restart_job(job_id: str, payload: RestartRequest) -> dict:
     if requested_min > requested_max:
         raise HTTPException(status_code=400, detail="La duracion minima no puede ser mayor que la maxima.")
 
+    restart_genre = (payload.content_genre or "").strip() or None
+    restart_moments_instruction = (payload.specific_moments_instruction or "").strip() or None
+    restart_ai_choose = payload.ai_choose_count
+    restart_video_language = (payload.video_language or "").strip() or None
+    restart_subtitle_font_size = payload.subtitle_font_size
+
     await update_job_requests(
         job_id,
         requested_clips_count=requested_clips,
@@ -281,6 +322,11 @@ async def restart_job(job_id: str, payload: RestartRequest) -> dict:
         requested_subtitle_margin_vertical=requested_margin_v,
         requested_output_width=requested_output_w,
         requested_output_height=requested_output_h,
+        requested_content_genre=restart_genre,
+        requested_specific_moments_instruction=restart_moments_instruction,
+        requested_ai_choose_count=restart_ai_choose,
+        requested_video_language=restart_video_language,
+        requested_subtitle_font_size=restart_subtitle_font_size,
     )
 
     await _cancel_job_task(job_id)
@@ -338,10 +384,11 @@ async def publish_approved(job_id: str) -> PublishApprovedResponse:
             published_count += 1
         except Exception as exc:
             await set_clip_publish_status(job_id, clip.index, status="failed", error=str(exc))
-            await add_log(job_id, f"Fallo publicando clip {clip.index}: {exc}")
+            await add_log(job_id, f"Fallo publicando clip {clip.index}: {exc}", level="ERROR")
             failed_count += 1
 
-    await add_log(job_id, f"Publicacion finalizada. OK={published_count}, FAIL={failed_count}.")
+    summary_level = "SUCCESS" if failed_count == 0 else "INFO"
+    await add_log(job_id, f"Publicacion finalizada. OK={published_count}, FAIL={failed_count}.", level=summary_level)
     return PublishApprovedResponse(published_count=published_count, failed_count=failed_count)
 
 
@@ -357,23 +404,48 @@ async def tiktok_integrations() -> dict:
 @app.post("/api/preview/subtitle-frame", response_model=SubtitlePreviewResponse)
 async def subtitle_preview(payload: SubtitlePreviewRequest) -> SubtitlePreviewResponse:
     requested_font = (payload.subtitle_font_name or settings.subtitle_font_name).strip() or settings.subtitle_font_name
+    requested_font_size = payload.subtitle_font_size or settings.subtitle_font_size
     requested_margin_h = payload.subtitle_margin_horizontal or settings.subtitle_margin_horizontal
     requested_margin_v = payload.subtitle_margin_vertical or settings.subtitle_margin_vertical
     requested_output_w = payload.output_width or settings.output_width
     requested_output_h = payload.output_height or settings.output_height
     requested_output_w, requested_output_h = _normalize_output_size(requested_output_w, requested_output_h)
+    requested_background_image_url = (payload.background_image_url or "").strip()
+    if requested_background_image_url and not requested_background_image_url.startswith("https://img.youtube.com/"):
+        requested_background_image_url = ""
 
     preview_url = await asyncio.to_thread(
         render_subtitle_preview_image,
         settings,
         subtitle_font_name=requested_font,
+        subtitle_font_size=requested_font_size,
         subtitle_margin_horizontal=max(20, requested_margin_h),
         subtitle_margin_vertical=max(20, requested_margin_v),
         output_width=requested_output_w,
         output_height=requested_output_h,
         subtitle_text=(payload.subtitle_text or "ESTA FRASE SE CONSTRUYE EN VIVO").strip(),
+        background_image_url=requested_background_image_url or None,
     )
     return SubtitlePreviewResponse(preview_url=preview_url)
+
+
+@app.get("/api/youtube/oembed")
+async def youtube_oembed(url: str) -> dict:
+    import httpx
+
+    if "youtube.com" not in url and "youtu.be" not in url:
+        raise HTTPException(status_code=400, detail="URL de YouTube invalida.")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://www.youtube.com/oembed",
+                params={"url": url, "format": "json"},
+                timeout=5.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo obtener metadata: {exc}") from exc
 
 
 @app.get("/{full_path:path}")

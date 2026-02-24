@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChannelsPage } from "./components/ChannelsPage";
 import { ClipModal } from "./components/ClipModal";
-import { JobConfigPanel } from "./components/JobConfigPanel";
+import { Header } from "./components/Header";
+import { HistoryPage } from "./components/HistoryPage";
+import { JobWizard } from "./components/JobWizard";
+import { OverviewPage } from "./components/OverviewPage";
 import { PipelinePanel } from "./components/PipelinePanel";
-import { SetupInstructions } from "./components/SetupInstructions";
-import { ThemeToggle } from "./components/ThemeToggle";
+import { SearchModal } from "./components/SearchModal";
+import { Sidebar } from "./components/Sidebar";
 import type {
   BusyAction,
   ClipArtifact,
@@ -11,25 +15,34 @@ import type {
   JobState,
   JobStatus,
   NoticeType,
+  PageType,
   ThemeMode,
 } from "./types";
 
 const API_BASE = "";
 const THEME_STORAGE_KEY = "clipmaker-theme";
-const PREVIEW_SUBTITLE_TEXT = "ESTA FRASE SE CONSTRUYE EN VIVO";
+const SIDEBAR_COLLAPSED_KEY = "clipmaker-sidebar-collapsed";
 
-const FONT_OPTIONS = ["Inter", "Montserrat", "Poppins", "Arial"];
+const FONT_OPTIONS = ["Bebas Neue", "Montserrat", "Oswald", "Roboto Condensed", "Anton"];
 
 const DEFAULT_FORM: FormState = {
   youtube_url: "",
   clips_count: 4,
-  min_clip_seconds: 12,
-  max_clip_seconds: 95,
-  subtitle_font_name: "Inter",
+  ai_choose_count: false,
+  content_genre: "",
+  specific_moments_instruction: "",
+  subtitle_font_name: "Bebas Neue",
   subtitle_margin_horizontal: 56,
   subtitle_margin_vertical: 46,
   output_width: 1080,
   output_height: 1920,
+  subtitles_enabled: true,
+  subtitle_preset: "",
+  aspect_ratio: "9:16",
+  video_language: "es",
+  subtitle_font_size: 36,
+  subtitle_position_x: 50,
+  subtitle_position_y: 85,
 };
 
 function getInitialTheme(): ThemeMode {
@@ -37,6 +50,11 @@ function getInitialTheme(): ThemeMode {
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
   if (saved === "dark" || saved === "light") return saved;
   return "light";
+}
+
+function getInitialSidebarCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
 }
 
 function parseApiError(body: unknown): string {
@@ -70,8 +88,37 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function buildJobPayload(form: FormState): Omit<FormState, "aspect_ratio" | "subtitle_position_x" | "subtitle_position_y"> {
+  const { aspect_ratio, subtitle_position_x, subtitle_position_y, ...rest } = form;
+  const MARGIN_MIN = 20;
+  const MARGIN_H_MAX = 300; // backend request limit
+  const MARGIN_V_MAX = 220; // keep subtitles inside visible frame
+  const y = clamp(subtitle_position_y, 5, 95);
+  const yNorm = (y - 5) / 90;
+  const computedMarginHorizontal = Math.min(
+    MARGIN_H_MAX,
+    Math.max(
+      MARGIN_MIN,
+      Math.round(form.output_width * (1 - (2 * Math.abs(subtitle_position_x - 50)) / 100) / 2),
+    ),
+  );
+  const computedMarginVertical = Math.round(MARGIN_V_MAX - yNorm * (MARGIN_V_MAX - MARGIN_MIN));
+
+  return {
+    ...rest,
+    subtitle_margin_horizontal: computedMarginHorizontal,
+    subtitle_margin_vertical: clamp(computedMarginVertical, MARGIN_MIN, MARGIN_V_MAX),
+  };
+}
+
 export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(getInitialSidebarCollapsed);
+  const [activePage, setActivePage] = useState<PageType>("overview");
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [jobId, setJobId] = useState<string>("");
   const [job, setJob] = useState<JobState | null>(null);
@@ -80,9 +127,7 @@ export default function App() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [busyAction, setBusyAction] = useState<BusyAction>("");
   const [modalClip, setModalClip] = useState<ClipArtifact | null>(null);
-  const [previewImageUrl, setPreviewImageUrl] = useState<string>("");
-  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
-  const [previewError, setPreviewError] = useState<string>("");
+  const [searchOpen, setSearchOpen] = useState<boolean>(false);
 
   const streamRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -111,6 +156,7 @@ export default function App() {
   const canRegenerate = Boolean(job && job.status === "completed" && allRejected);
   const canRestart = Boolean(job && (job.status === "running" || job.status === "failed"));
   const inPipelineStage = Boolean(jobId);
+  const isJobRunning = Boolean(jobId && job && (job.status === "running" || job.status === "queued"));
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -151,6 +197,12 @@ export default function App() {
             setNoticeType("error");
             setNotice(next.error);
           }
+          // Close the SSE connection on terminal states
+          if (next.status === "completed" || next.status === "failed") {
+            source.close();
+            streamRef.current = null;
+            clearReconnectTimer();
+          }
         } catch {
           setNoticeType("error");
           setNotice("No se pudo procesar un evento en vivo.");
@@ -159,12 +211,17 @@ export default function App() {
 
       source.onerror = () => {
         const currentStatus = statusRef.current;
-        if (currentStatus === "completed" || currentStatus === "failed") return;
+        if (currentStatus === "completed" || currentStatus === "failed") {
+          source.close();
+          streamRef.current = null;
+          clearReconnectTimer();
+          return;
+        }
         retryRef.current += 1;
 
         if (retryRef.current > 8) {
           setNoticeType("error");
-          setNotice("Conexion inestable con updates en vivo. Usa Reiniciar proceso.");
+          setNotice("Conexion inestable con updates en vivo.");
           return;
         }
 
@@ -186,64 +243,6 @@ export default function App() {
     };
   }, [closeStream]);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (!job || job.status !== "running") return;
-      if (!lastUpdateRef.current) return;
-      const staleMs = Date.now() - lastUpdateRef.current;
-      if (staleMs > 180_000) {
-        setNoticeType("error");
-        setNotice(`No hay avances hace ${Math.floor(staleMs / 1000)}s. Usa Reiniciar proceso.`);
-      }
-    }, 10_000);
-
-    return () => window.clearInterval(interval);
-  }, [job]);
-
-  useEffect(() => {
-    if (inPipelineStage) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      try {
-        setPreviewLoading(true);
-        const payload = await apiJson<{ preview_url: string }>("/api/preview/subtitle-frame", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subtitle_font_name: form.subtitle_font_name,
-            subtitle_margin_horizontal: form.subtitle_margin_horizontal,
-            subtitle_margin_vertical: form.subtitle_margin_vertical,
-            output_width: form.output_width,
-            output_height: form.output_height,
-            subtitle_text: PREVIEW_SUBTITLE_TEXT,
-          }),
-          signal: controller.signal,
-        });
-        setPreviewImageUrl(payload.preview_url);
-        setPreviewError("");
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setPreviewError(error instanceof Error ? error.message : "No se pudo generar preview exacto.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setPreviewLoading(false);
-        }
-      }
-    }, 280);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [
-    inPipelineStage,
-    form.subtitle_font_name,
-    form.subtitle_margin_horizontal,
-    form.subtitle_margin_vertical,
-    form.output_width,
-    form.output_height,
-  ]);
-
   const updateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -252,17 +251,7 @@ export default function App() {
     if (!form.youtube_url.trim()) {
       throw new Error("Ingresa un link de YouTube.");
     }
-    if (form.min_clip_seconds > form.max_clip_seconds) {
-      throw new Error("La duracion minima no puede ser mayor que la maxima.");
-    }
-    if (form.subtitle_margin_horizontal < 20 || form.subtitle_margin_vertical < 20) {
-      throw new Error("Pad X y Pad Y deben ser >= 20.");
-    }
     if (
-      !Number.isInteger(form.min_clip_seconds) ||
-      !Number.isInteger(form.max_clip_seconds) ||
-      !Number.isInteger(form.subtitle_margin_horizontal) ||
-      !Number.isInteger(form.subtitle_margin_vertical) ||
       !Number.isInteger(form.output_width) ||
       !Number.isInteger(form.output_height)
     ) {
@@ -274,7 +263,7 @@ export default function App() {
       form.output_width > 3840 ||
       form.output_height > 3840
     ) {
-      throw new Error("El tamaño de salida debe estar entre 320 y 3840.");
+      throw new Error("El tamano de salida debe estar entre 320 y 3840.");
     }
     if (form.output_width % 2 !== 0 || form.output_height % 2 !== 0) {
       throw new Error("Width y Height deben ser numeros pares.");
@@ -301,10 +290,11 @@ export default function App() {
       validateForm();
       setSubmitting(true);
       resetRunUi();
+      const apiPayload = buildJobPayload(form);
       const payload = await apiJson<{ job_id: string }>("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(apiPayload),
       });
       setJobId(payload.job_id);
       connectStream(payload.job_id);
@@ -316,21 +306,16 @@ export default function App() {
     }
   };
 
-  const handleReview = async (clipIndex: number, approved: boolean, rejectionReason = "") => {
+  const handleReview = async (clipIndex: number, approved: boolean | null, rejectionReason = "") => {
     if (!jobId) return;
     const trimmedReason = rejectionReason.trim();
-    if (!approved && trimmedReason.length < 4) {
-      setNoticeType("error");
-      setNotice("Para rechazar un clip, agrega un motivo de al menos 4 caracteres.");
-      return;
-    }
     try {
       const updated = await apiJson<JobState>(`/api/jobs/${jobId}/clips/${clipIndex}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           approved,
-          rejection_reason: approved ? null : trimmedReason,
+          rejection_reason: approved === false ? (trimmedReason || null) : null,
         }),
       });
       setJob(updated);
@@ -345,10 +330,11 @@ export default function App() {
     try {
       validateForm();
       setBusyAction("regenerate");
+      const apiPayload = buildJobPayload(form);
       const updated = await apiJson<JobState>(`/api/jobs/${jobId}/regenerate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(apiPayload),
       });
       setJob(updated);
       setNoticeType("info");
@@ -367,10 +353,11 @@ export default function App() {
     try {
       validateForm();
       setBusyAction("restart");
+      const apiPayload = buildJobPayload(form);
       const updated = await apiJson<JobState>(`/api/jobs/${jobId}/restart`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, use_cache: true }),
+        body: JSON.stringify({ ...apiPayload, use_cache: true }),
       });
       setJob(updated);
       setNoticeType("info");
@@ -402,78 +389,109 @@ export default function App() {
     }
   };
 
-  const logs = useMemo(() => [...(job?.logs ?? [])].reverse(), [job?.logs]);
+  const loadJobFromHistory = useCallback(
+    (selectedJob: JobState) => {
+      setJobId(selectedJob.job_id);
+      setJob(selectedJob);
+      connectStream(selectedJob.job_id);
+      setActivePage("clipper");
+      setSearchOpen(false);
+      setNotice("");
+    },
+    [connectStream],
+  );
+
+  const logs = useMemo(() => job?.logs ?? [], [job?.logs]);
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  };
+
+  const sidebarWidth = sidebarCollapsed ? "64px" : "240px";
 
   return (
-    <div className="app">
-      <div className="ambient ambient-a" />
-      <div className="ambient ambient-b" />
-
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">ClipMaker</p>
-          <h1>{inPipelineStage ? "Pipeline Monitor" : "Studio Control Deck"}</h1>
-          {inPipelineStage && (
-            <p className="lead">
-              Seguimiento en vivo del pipeline, revision de clips y publicacion de aprobados.
-            </p>
-          )}
-        </div>
-        <ThemeToggle
-          theme={theme}
-          onToggle={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
+    <>
+      <div className="app-layout" style={{ "--sidebar-width": sidebarWidth } as React.CSSProperties}>
+        <Sidebar
+          activePage={activePage}
+          onNavigate={setActivePage}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebarCollapsed}
+          runningJobId={isJobRunning ? jobId : ""}
         />
-      </header>
 
-      {!inPipelineStage && (
-        <section className="layout layout-setup">
-          <SetupInstructions />
-        </section>
-      )}
+        <main className="main-content">
+          <Header
+            theme={theme}
+            onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
+            onOpenSearch={() => setSearchOpen(true)}
+            runningJobId={isJobRunning ? jobId : ""}
+            onGoToJob={() => setActivePage("clipper")}
+          />
 
-      <main className={`layout ${inPipelineStage ? "layout-pipeline" : "layout-setup"}`}>
-        {!inPipelineStage ? (
-          <JobConfigPanel
-            form={form}
-            fontOptions={FONT_OPTIONS}
-            submitting={submitting}
-            notice={notice}
-            noticeType={noticeType}
-            previewImageUrl={previewImageUrl}
-            previewLoading={previewLoading}
-            previewError={previewError}
-            onUpdateForm={updateForm}
-            onCreateJob={handleCreateJob}
-            onFieldFormatError={(message) => {
-              setNoticeType("error");
-              setNotice(message);
-            }}
-          />
-        ) : (
-          <PipelinePanel
-            jobId={jobId}
-            job={job}
-            progress={progress}
-            notice={notice}
-            noticeType={noticeType}
-            busyAction={busyAction}
-            approvedCount={approvedCount}
-            rejectedCount={rejectedCount}
-            canRestart={canRestart}
-            canRegenerate={canRegenerate}
-            canPublish={canPublish}
-            logs={logs}
-            onRestart={handleRestart}
-            onRegenerate={handleRegenerate}
-            onPublish={handlePublish}
-            onStartNew={handleStartNew}
-            onOpenClip={setModalClip}
-            onReviewClip={handleReview}
-          />
-        )}
-      </main>
+          {activePage === "clipper" && (
+            <>
+              {!inPipelineStage && (
+                <JobWizard
+                  form={form}
+                  fontOptions={FONT_OPTIONS}
+                  submitting={submitting}
+                  notice={notice}
+                  noticeType={noticeType}
+                  onUpdateForm={updateForm}
+                  onCreateJob={handleCreateJob}
+                  onFieldFormatError={(message) => {
+                    setNoticeType("error");
+                    setNotice(message);
+                  }}
+                />
+              )}
+
+              {inPipelineStage && (
+                <PipelinePanel
+                  jobId={jobId}
+                  job={job}
+                  progress={progress}
+                  notice={notice}
+                  noticeType={noticeType}
+                  busyAction={busyAction}
+                  approvedCount={approvedCount}
+                  rejectedCount={rejectedCount}
+                  canRestart={canRestart}
+                  canRegenerate={canRegenerate}
+                  canPublish={canPublish}
+                  logs={logs}
+                  onRestart={handleRestart}
+                  onRegenerate={handleRegenerate}
+                  onPublish={handlePublish}
+                  onStartNew={handleStartNew}
+                  onOpenClip={setModalClip}
+                  onReviewClip={handleReview}
+                />
+              )}
+            </>
+          )}
+
+          {activePage === "overview" && <OverviewPage onNavigate={setActivePage} />}
+
+          {activePage === "channels" && <ChannelsPage />}
+
+          {activePage === "historial" && <HistoryPage />}
+        </main>
+      </div>
 
       {modalClip && <ClipModal clip={modalClip} onClose={() => setModalClip(null)} />}
-    </div>
+
+      {searchOpen && (
+        <SearchModal
+          onClose={() => setSearchOpen(false)}
+          onSelectJob={loadJobFromHistory}
+        />
+      )}
+    </>
   );
 }

@@ -30,7 +30,8 @@ Completa `.env` con tu `OPENAI_API_KEY` (y el resto de variables de configuracio
 Terminal 1 (backend):
 
 ```bash
-uvicorn app.main:app --reload
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
 ```
 
 Terminal 2 (frontend React):
@@ -132,9 +133,24 @@ Para deploy en produccion (x86_64, ej. Hetzner VPS), se puede volver a Elasticse
 
 ### Configuracion
 
-Todas las variables de entorno estan inline en `postiz/docker-compose.yml` (approach recomendado por la doc oficial). Las principales:
+Las credenciales y secretos se mantienen en archivos `.env` gitignoreados:
 
-- `JWT_SECRET`: generado con `openssl rand -hex 32` (ya configurado)
+- `postiz/.env`: credenciales de PostgreSQL y Redis
+- `postiz/.postiz.env`: configuracion de la app Postiz (JWT_SECRET, DATABASE_URL, REDIS_URL, APIs de redes sociales, etc.)
+
+Para configurar, copiar los ejemplos y editar:
+
+```bash
+cp postiz/.env.example postiz/.env
+cp postiz/.postiz.env.example postiz/.postiz.env
+# Generar JWT_SECRET:
+openssl rand -hex 32
+# Pegar el resultado en postiz/.postiz.env como JWT_SECRET=...
+```
+
+Variables principales en `postiz/.postiz.env`:
+
+- `JWT_SECRET`: secreto para autenticacion (generar con `openssl rand -hex 32`)
 - `MAIN_URL` / `FRONTEND_URL`: `http://localhost:4007`
 - `DATABASE_URL`: PostgreSQL interno
 - `REDIS_URL`: Redis interno

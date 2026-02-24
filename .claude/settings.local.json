@@ -1,7 +1,23 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh:*)"
+      "Bash(gh:*)",
+      "Bash(git commit:*)",
+      "WebFetch(domain:gonap93.github.io)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(python -c:*)",
+      "Bash(if [ -f .venv/bin/python ])",
+      "Bash(then .venv/bin/python -c \"from app.models import *; print\\(''Models OK''\\)\")",
+      "Bash(elif [ -f venv/bin/python ])",
+      "Bash(then venv/bin/python -c \"from app.models import *; print\\(''Models OK''\\)\")",
+      "Bash(else echo \"No venv found, skipping\")",
+      "Bash(fi)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(ssh:*)"
     ]
   }
 }

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     subtitle_font_name: str = Field(default="Inter")
     subtitle_font_file: str = Field(default="")
     subtitle_font_size: int = Field(default=10)
+    subtitle_font_render_scale: float = Field(default=0.45)
     subtitle_letter_spacing: float = Field(default=2.2)
     subtitle_uppercase: bool = Field(default=True)
     subtitle_margin_vertical: int = Field(default=46)

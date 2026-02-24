@@ -24,6 +24,28 @@ def _safe_title(raw_title: str, index: int) -> str:
     return title[:80]
 
 
+def _transcript_excerpt(transcript: dict, start: float, end: float, max_chars: int = 260) -> str:
+    segments = transcript.get("segments", [])
+    excerpt_parts: list[str] = []
+    chars = 0
+    for segment in segments:
+        seg_start = float(segment.get("start", 0.0))
+        seg_end = float(segment.get("end", 0.0))
+        if seg_end < start or seg_start > end:
+            continue
+        text = " ".join(str(segment.get("text", "")).strip().split())
+        if not text:
+            continue
+        excerpt_parts.append(text)
+        chars += len(text) + 1
+        if chars >= max_chars:
+            break
+    excerpt = " ".join(excerpt_parts).strip()
+    if len(excerpt) > max_chars:
+        return excerpt[: max_chars - 1].rstrip() + "…"
+    return excerpt
+
+
 def _resolve_cached_source_video(job_dir: Path) -> Path | None:
     candidates = [path for path in job_dir.glob("source.*") if path.is_file()]
     if not candidates:
@@ -159,6 +181,7 @@ async def _render_moments_as_clips(
     progress_start: float,
     progress_span: float,
     subtitle_font_name: str,
+    subtitle_font_size: int | None = None,
     subtitle_margin_horizontal: int,
     subtitle_margin_vertical: int,
     output_width: int,
@@ -169,8 +192,13 @@ async def _render_moments_as_clips(
         raise RuntimeError("No se encontraron momentos para renderizar clips.")
 
     for idx, moment in enumerate(moments, start=1):
+        if "start" not in moment or "end" not in moment:
+            await add_log(job_id, f"Clip {idx}: datos de momento incompletos (sin start/end), omitiendo", level="ERROR")
+            continue
         start = float(moment["start"])
         end = float(moment["end"])
+        calculated_duration = round(end - start, 2)
+        await add_log(job_id, f"Clip {idx}: start={start:.2f}s end={end:.2f}s duration={calculated_duration}s")
         title = _safe_title(str(moment.get("title", f"Clip {idx}")), idx)
         current_progress = progress_start + (idx - 1) * (progress_span / clip_count)
         await set_progress(
@@ -201,6 +229,7 @@ async def _render_moments_as_clips(
             end,
             settings,
             subtitle_font_name,
+            subtitle_font_size,
             subtitle_margin_horizontal,
             subtitle_margin_vertical,
             output_width,
@@ -214,6 +243,9 @@ async def _render_moments_as_clips(
             thumbnail_url = ""
 
         clip_url = f"/jobs/{job_id}/{clip_path.name}"
+        excerpt = _transcript_excerpt(transcript, start, end)
+        if not excerpt:
+            excerpt = str(moment.get("reason", "")).strip()
         clip = ClipArtifact(
             index=idx,
             title=title,
@@ -222,6 +254,8 @@ async def _render_moments_as_clips(
             duration=round(end - start, 2),
             url=clip_url,
             thumbnail_url=thumbnail_url,
+            score=round(float(moment.get("score", 0.0)), 1),
+            transcript_excerpt=excerpt,
         )
         await add_clip(job_id, clip)
         await add_log(job_id, f"Clip {idx} listo: {clip_path.name}")
@@ -236,20 +270,32 @@ async def _build_or_extend_moment_pool(
     max_clip_seconds: int,
     existing_pool: list[dict],
     rejection_feedback: list[str] | None = None,
+    content_genre: str = "",
+    specific_moments_instruction: str = "",
+    video_language: str = "es",
 ) -> list[dict]:
     pool = _unique_moments(existing_pool)
-    min_pool_size = max(target_clips * 3, target_clips + 6)
+    # When target_clips == 0 (AI-unlimited), request a large pool.
+    if target_clips <= 0:
+        min_pool_size = 50
+    else:
+        min_pool_size = max(target_clips * 3, target_clips + 6)
     if len(pool) >= min_pool_size:
         return _rank_pool_by_feedback(pool, rejection_feedback or [])
 
+    # Pass target_clips=0 through to choose_viral_moments for AI-unlimited mode.
+    request_count = min_pool_size if target_clips > 0 else 0
     fresh = await asyncio.to_thread(
         choose_viral_moments,
         transcript,
         settings,
-        min_pool_size,
+        request_count,
         min_clip_seconds,
         max_clip_seconds,
         rejection_feedback or [],
+        content_genre or None,
+        specific_moments_instruction or None,
+        video_language,
     )
     return _rank_pool_by_feedback(_unique_moments(pool + fresh), rejection_feedback or [])
 
@@ -280,20 +326,32 @@ async def regenerate_job_from_cache(job_id: str) -> None:
         if "segments" not in transcript:
             raise RuntimeError("Transcript cache invalido.")
 
-        target_clips = max(1, int(job.requested_clips_count))
+        target_clips = int(job.requested_clips_count)
+        if job.requested_ai_choose_count or target_clips <= 0:
+            target_clips = 0
+        else:
+            target_clips = max(1, target_clips)
         min_clip_seconds = max(5, int(job.requested_min_clip_seconds))
         max_clip_seconds = max(min_clip_seconds, int(job.requested_max_clip_seconds))
         subtitle_font_name = job.requested_subtitle_font_name
+        subtitle_font_size = getattr(job, "requested_subtitle_font_size", None)
         subtitle_margin_horizontal = int(job.requested_subtitle_margin_horizontal)
         subtitle_margin_vertical = int(job.requested_subtitle_margin_vertical)
         output_width = int(job.requested_output_width)
         output_height = int(job.requested_output_height)
+        content_genre = job.requested_content_genre
+        specific_moments_instruction = job.requested_specific_moments_instruction
+        video_language = getattr(job, "requested_video_language", "es") or "es"
         feedback_notes = _load_json(feedback_path, [])
         current_feedback = _collect_rejection_feedback_from_job(job)
         if current_feedback:
             merged_feedback = list(dict.fromkeys([*feedback_notes, *current_feedback]))
             _save_json(feedback_path, merged_feedback)
             feedback_notes = merged_feedback
+
+        # For AI-unlimited mode (target_clips == 0), pass 0 through to let
+        # the analyzer return all moments. effective_target is set after selection.
+        ai_unlimited = target_clips <= 0
 
         pool = _load_json(pool_path, [])
         used_starts = [float(item) for item in _load_json(used_path, [])]
@@ -305,28 +363,40 @@ async def regenerate_job_from_cache(job_id: str) -> None:
             max_clip_seconds=max_clip_seconds,
             existing_pool=pool,
             rejection_feedback=feedback_notes,
+            content_genre=content_genre,
+            specific_moments_instruction=specific_moments_instruction,
+            video_language=video_language,
         )
         _save_json(pool_path, pool)
 
-        selected = _select_unused_moments(pool, used_starts, target_clips)
-        if len(selected) < target_clips:
+        if ai_unlimited:
+            effective_target = max(len(pool), 4)
+        else:
+            effective_target = target_clips
+
+        selected = _select_unused_moments(pool, used_starts, effective_target)
+        if len(selected) < effective_target and not ai_unlimited:
             await add_log(job_id, "Pool de momentos agotado; se intentara completar con nuevos candidatos.")
             extra = await asyncio.to_thread(
                 choose_viral_moments,
                 transcript,
                 settings,
-                max(target_clips * 2, 8),
+                max(effective_target * 2, 8),
                 min_clip_seconds,
                 max_clip_seconds,
                 feedback_notes,
+                content_genre or None,
+                specific_moments_instruction or None,
+                video_language,
             )
             pool = _rank_pool_by_feedback(_unique_moments(pool + extra), feedback_notes)
             _save_json(pool_path, pool)
-            selected = _select_unused_moments(pool, used_starts, target_clips)
+            selected = _select_unused_moments(pool, used_starts, effective_target)
 
         if not selected:
             raise RuntimeError("No se encontraron nuevos momentos para regenerar.")
-        selected = selected[:target_clips]
+        if not ai_unlimited:
+            selected = selected[:effective_target]
         _save_json(moments_path, selected)
 
         generation = await start_new_generation(job_id)
@@ -341,6 +411,7 @@ async def regenerate_job_from_cache(job_id: str) -> None:
             progress_start=52,
             progress_span=44,
             subtitle_font_name=subtitle_font_name,
+            subtitle_font_size=subtitle_font_size,
             subtitle_margin_horizontal=subtitle_margin_horizontal,
             subtitle_margin_vertical=subtitle_margin_vertical,
             output_width=output_width,
@@ -351,7 +422,7 @@ async def regenerate_job_from_cache(job_id: str) -> None:
         _save_json(used_path, used_starts)
 
         await set_progress(job_id, status="completed", progress=100, current_step="Completado")
-        await add_log(job_id, "Regeneracion completada usando assets cacheados.")
+        await add_log(job_id, "Regeneracion completada usando assets cacheados.", level="SUCCESS")
     except asyncio.CancelledError:
         await set_progress(
             job_id,
@@ -360,11 +431,11 @@ async def regenerate_job_from_cache(job_id: str) -> None:
             current_step="Cancelado",
             error="Proceso cancelado por reinicio manual.",
         )
-        await add_log(job_id, "Regeneracion cancelada por reinicio manual.")
+        await add_log(job_id, "Regeneracion cancelada por reinicio manual.", level="ERROR")
         raise
     except Exception as exc:
         await set_progress(job_id, status="failed", progress=100, current_step="Error", error=str(exc))
-        await add_log(job_id, f"Fallo regenerando clips: {exc}")
+        await add_log(job_id, f"Fallo regenerando clips: {exc}", level="ERROR")
 
 
 async def run_job(job_id: str, youtube_url: str) -> None:
@@ -395,15 +466,25 @@ async def run_job(job_id: str, youtube_url: str) -> None:
         if job is None:
             raise RuntimeError("Job no encontrado durante analisis.")
 
-        target_clips = max(1, int(job.requested_clips_count))
+        target_clips = int(job.requested_clips_count)
+        if job.requested_ai_choose_count or target_clips <= 0:
+            target_clips = 0  # signal auto-choose
+        else:
+            target_clips = max(1, target_clips)
         min_clip_seconds = max(5, int(job.requested_min_clip_seconds))
         max_clip_seconds = max(min_clip_seconds, int(job.requested_max_clip_seconds))
         subtitle_font_name = job.requested_subtitle_font_name
+        subtitle_font_size = getattr(job, "requested_subtitle_font_size", None)
         subtitle_margin_horizontal = int(job.requested_subtitle_margin_horizontal)
         subtitle_margin_vertical = int(job.requested_subtitle_margin_vertical)
         output_width = int(job.requested_output_width)
         output_height = int(job.requested_output_height)
+        content_genre = job.requested_content_genre
+        specific_moments_instruction = job.requested_specific_moments_instruction
+        video_language = getattr(job, "requested_video_language", "es") or "es"
         feedback_notes = _load_json(feedback_path, [])
+
+        ai_unlimited = target_clips <= 0
 
         pool = await _build_or_extend_moment_pool(
             transcript=transcript,
@@ -413,13 +494,22 @@ async def run_job(job_id: str, youtube_url: str) -> None:
             max_clip_seconds=max_clip_seconds,
             existing_pool=[],
             rejection_feedback=feedback_notes,
+            content_genre=content_genre,
+            specific_moments_instruction=specific_moments_instruction,
+            video_language=video_language,
         )
         _save_json(pool_path, pool)
 
-        selected = _select_unused_moments(pool, [], target_clips)
+        if ai_unlimited:
+            effective_target = max(len(pool), 4)
+        else:
+            effective_target = target_clips
+
+        selected = _select_unused_moments(pool, [], effective_target)
         if not selected:
             raise RuntimeError("No se pudieron identificar momentos para generar clips.")
-        selected = selected[:target_clips]
+        if not ai_unlimited:
+            selected = selected[:effective_target]
         _save_json(moments_path, selected)
         await add_log(job_id, f"Momentos seleccionados: {len(selected)}.")
 
@@ -435,6 +525,7 @@ async def run_job(job_id: str, youtube_url: str) -> None:
             progress_start=52,
             progress_span=44,
             subtitle_font_name=subtitle_font_name,
+            subtitle_font_size=subtitle_font_size,
             subtitle_margin_horizontal=subtitle_margin_horizontal,
             subtitle_margin_vertical=subtitle_margin_vertical,
             output_width=output_width,
@@ -443,7 +534,7 @@ async def run_job(job_id: str, youtube_url: str) -> None:
         _save_json(used_path, [_moment_start(moment) for moment in selected])
 
         await set_progress(job_id, status="completed", progress=100, current_step="Completado")
-        await add_log(job_id, "Pipeline finalizado con exito.")
+        await add_log(job_id, "Pipeline finalizado con exito.", level="SUCCESS")
     except asyncio.CancelledError:
         await set_progress(
             job_id,
@@ -452,8 +543,8 @@ async def run_job(job_id: str, youtube_url: str) -> None:
             current_step="Cancelado",
             error="Proceso cancelado por reinicio manual.",
         )
-        await add_log(job_id, "Job cancelado por reinicio manual.")
+        await add_log(job_id, "Job cancelado por reinicio manual.", level="ERROR")
         raise
     except Exception as exc:
         await set_progress(job_id, status="failed", progress=100, current_step="Error", error=str(exc))
-        await add_log(job_id, f"Fallo del pipeline: {exc}")
+        await add_log(job_id, f"Fallo del pipeline: {exc}", level="ERROR")

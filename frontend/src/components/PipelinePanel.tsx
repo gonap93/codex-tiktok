@@ -1,4 +1,5 @@
-import { ClipCard } from "./ClipCard";
+import { useEffect, useRef } from "react";
+import { ClipReviewTable } from "./ClipReviewTable";
 import type { BusyAction, ClipArtifact, JobState, NoticeType } from "../types";
 
 interface PipelinePanelProps {
@@ -19,7 +20,7 @@ interface PipelinePanelProps {
   onPublish: () => void;
   onStartNew: () => void;
   onOpenClip: (clip: ClipArtifact) => void;
-  onReviewClip: (clipIndex: number, approved: boolean, rejectionReason?: string) => void;
+  onReviewClip: (clipIndex: number, approved: boolean | null, rejectionReason?: string) => void;
 }
 
 function statusLabel(status?: JobState["status"]): string {
@@ -37,17 +38,29 @@ function statusLabel(status?: JobState["status"]): string {
   }
 }
 
-function publishLabel(status: ClipArtifact["publish_status"]): string {
-  switch (status) {
-    case "publishing":
-      return "Publicando";
-    case "published":
-      return "Publicado";
-    case "failed":
-      return "Error publicacion";
-    default:
-      return "Sin publicar";
-  }
+function logLevelClass(line: string): string {
+  if (line.includes("[ERROR]")) return "terminal-line--error";
+  if (line.includes("[SUCCESS]")) return "terminal-line--success";
+  return "";
+}
+
+function TerminalLogs({ logs }: { logs: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  return (
+    <div className="terminal-logs" ref={containerRef}>
+      {logs.length === 0 && <p className="terminal-empty">Sin logs por ahora.</p>}
+      {logs.map((line, idx) => (
+        <p className={`terminal-line ${logLevelClass(line)}`} key={`${idx}-${line}`}>{line}</p>
+      ))}
+    </div>
+  );
 }
 
 export function PipelinePanel({
@@ -70,6 +83,9 @@ export function PipelinePanel({
   onOpenClip,
   onReviewClip,
 }: PipelinePanelProps) {
+  const isError = job?.status === "failed";
+  const isCompleted = job?.status === "completed";
+
   return (
     <section className="panel output-panel">
       <div className="status-head">
@@ -90,22 +106,24 @@ export function PipelinePanel({
       {notice && <div className={`notice notice-${noticeType}`}>{notice}</div>}
 
       <div className="action-row">
-        <button className="btn btn-secondary" disabled={!canRestart || busyAction !== ""} onClick={onRestart}>
-          {busyAction === "restart" ? "Reiniciando..." : "Reiniciar proceso"}
-        </button>
+        {isError && (
+          <button className="btn btn-primary" disabled={!canRestart || busyAction !== ""} onClick={onRestart}>
+            {busyAction === "restart" ? "Reiniciando..." : "Reiniciar proceso"}
+          </button>
+        )}
 
-        <button className="btn btn-ghost" disabled={!canRegenerate || busyAction !== ""} onClick={onRegenerate}>
-          {busyAction === "regenerate" ? "Regenerando..." : "Regenerar clips"}
-        </button>
+        {isCompleted && (
+          <button className="btn btn-ghost" disabled={!canRegenerate || busyAction !== ""} onClick={onRegenerate}>
+            {busyAction === "regenerate" ? "Regenerando..." : "Regenerar clips"}
+          </button>
+        )}
 
-        <button className="btn btn-publish" disabled={!canPublish || busyAction !== ""} onClick={onPublish}>
-          {busyAction === "publish"
-            ? "Publicando..."
-            : `Publicar aprobados${canPublish ? ` (${approvedCount})` : ""}`}
-        </button>
-
-        <button className="btn btn-outline" disabled={busyAction !== ""} onClick={onStartNew}>
-          Nuevo job
+        <button
+          className={`btn ${isError ? "btn-outline btn-outline--danger" : "btn-outline"}`}
+          disabled={busyAction !== ""}
+          onClick={onStartNew}
+        >
+          {isError ? "Eliminar y empezar nuevo" : "Nuevo job"}
         </button>
       </div>
 
@@ -124,26 +142,23 @@ export function PipelinePanel({
         </article>
       </div>
 
-      <div className="clips-grid">
-        {(job?.clips ?? []).map((clip) => (
-          <ClipCard
-            key={clip.url}
-            clip={clip}
-            onOpen={onOpenClip}
-            onReview={onReviewClip}
-            publishLabel={publishLabel}
-          />
-        ))}
-      </div>
+      {(job?.clips ?? []).length > 0 && (
+        <ClipReviewTable
+          clips={job!.clips}
+          onOpenClip={onOpenClip}
+          onReviewClip={onReviewClip}
+          approvedCount={approvedCount}
+          canPublish={canPublish}
+          busyAction={busyAction}
+          onPublish={onPublish}
+        />
+      )}
 
       {!job?.clips?.length && <p className="empty">Todavia no hay clips para revisar.</p>}
 
-      <div className="logs">
+      <div className="terminal-section">
         <h3>Logs</h3>
-        {logs.length === 0 && <p className="empty">Sin logs por ahora.</p>}
-        {logs.map((line, idx) => (
-          <p key={`${line}-${idx}`}>{line}</p>
-        ))}
+        <TerminalLogs logs={logs} />
       </div>
     </section>
   );
