@@ -198,7 +198,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
           <p>Configura los parametros y genera clips optimizados para redes sociales.</p>
           {onNavigate && (
             <button className="btn btn-primary overview-cta" onClick={() => onNavigate("clipper")}>
-              Ir al Clipper
+              Ir al Blipr
             </button>
           )}
         </div>

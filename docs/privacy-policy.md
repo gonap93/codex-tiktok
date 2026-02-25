@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Privacy Policy - ClipMaker
+title: Privacy Policy - Blipr
 permalink: /privacy-policy
 ---
 
@@ -10,7 +10,7 @@ permalink: /privacy-policy
 
 ## 1. Introduction
 
-This Privacy Policy describes how ClipMaker ("we", "us", or "our") collects, uses, and shares information when you use our content creation service ("the Service"). By using ClipMaker, you agree to the collection and use of information in accordance with this policy.
+This Privacy Policy describes how Blipr ("we", "us", or "our") collects, uses, and shares information when you use our content creation service ("the Service"). By using Blipr, you agree to the collection and use of information in accordance with this policy.
 
 ## 2. Information We Collect
 
@@ -23,7 +23,7 @@ This Privacy Policy describes how ClipMaker ("we", "us", or "our") collects, use
 ### 2.2 Information from Third-Party Services
 
 - **TikTok Account Information:** When you connect your TikTok account via TikTok Login Kit, we receive your account display name and basic profile information necessary to publish content on your behalf.
-- **TikTok Authorization Tokens:** OAuth tokens that allow ClipMaker to post content to your TikTok account.
+- **TikTok Authorization Tokens:** OAuth tokens that allow Blipr to post content to your TikTok account.
 - **YouTube Video Metadata:** Publicly available metadata (title, duration) for videos you submit.
 
 ### 2.3 Automatically Collected Information
@@ -59,7 +59,7 @@ In connection with our use of TikTok's APIs:
 - We access your TikTok account information solely to publish content you have approved.
 - TikTok OAuth tokens are stored securely and used only for authorized posting actions.
 - We do not access your TikTok direct messages, followers list, or any data beyond what is required for content posting.
-- You may revoke ClipMaker's access to your TikTok account at any time through your TikTok account settings under "Manage app permissions."
+- You may revoke Blipr's access to your TikTok account at any time through your TikTok account settings under "Manage app permissions."
 - Upon revocation, we will cease using your TikTok authorization tokens.
 
 ## 6. Data Retention

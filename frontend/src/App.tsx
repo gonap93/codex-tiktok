@@ -128,6 +128,8 @@ export default function App() {
   const [busyAction, setBusyAction] = useState<BusyAction>("");
   const [modalClip, setModalClip] = useState<ClipArtifact | null>(null);
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
+  const [clipCaptions, setClipCaptions] = useState<Record<number, string>>({});
+  const [clipCaptionLoading, setClipCaptionLoading] = useState<Set<number>>(new Set());
 
   const streamRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -274,6 +276,8 @@ export default function App() {
     setJob(null);
     setModalClip(null);
     setNotice("");
+    setClipCaptions({});
+    setClipCaptionLoading(new Set());
     retryRef.current = 0;
     lastUpdateRef.current = 0;
     statusRef.current = null;
@@ -319,6 +323,39 @@ export default function App() {
         }),
       });
       setJob(updated);
+
+      if (approved === true) {
+        const clip = updated.clips.find((c) => c.index === clipIndex);
+        const transcript = clip?.transcript_excerpt?.trim() ?? "";
+        if (transcript && !clipCaptions[clipIndex]) {
+          setClipCaptionLoading((prev) => new Set([...prev, clipIndex]));
+          apiJson<{ caption: string }>("/api/publish/generate-caption", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clip_id: `${jobId}:${clipIndex}`, transcript }),
+          })
+            .then((res) => setClipCaptions((prev) => ({ ...prev, [clipIndex]: res.caption })))
+            .catch(() => setClipCaptions((prev) => ({ ...prev, [clipIndex]: "" })))
+            .finally(() =>
+              setClipCaptionLoading((prev) => {
+                const next = new Set(prev);
+                next.delete(clipIndex);
+                return next;
+              })
+            );
+        }
+      } else {
+        setClipCaptions((prev) => {
+          const next = { ...prev };
+          delete next[clipIndex];
+          return next;
+        });
+        setClipCaptionLoading((prev) => {
+          const next = new Set(prev);
+          next.delete(clipIndex);
+          return next;
+        });
+      }
     } catch (error) {
       setNoticeType("error");
       setNotice(error instanceof Error ? error.message : "No se pudo actualizar el clip.");
@@ -387,6 +424,46 @@ export default function App() {
     } finally {
       setBusyAction("");
     }
+  };
+
+  const handlePublishClip = async (
+    clipIndex: number,
+    caption: string,
+    title: string,
+    scheduleTime: string | null,
+  ): Promise<{ success: boolean; post_id: string }> => {
+    if (!jobId) throw new Error("No hay job activo.");
+    return apiJson<{ success: boolean; post_id: string }>("/api/publish/tiktok", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clip_id: `${jobId}:${clipIndex}`,
+        caption,
+        title,
+        schedule_time: scheduleTime || null,
+      }),
+    });
+  };
+
+  const handlePublishAllApproved = async (
+    publishData: Array<{ clipIndex: number; caption: string; title: string; scheduleTime: string | null }>,
+  ): Promise<Array<{ clip_id: string; success: boolean; post_id: string; error: string }>> => {
+    if (!jobId) throw new Error("No hay job activo.");
+    return apiJson<Array<{ clip_id: string; success: boolean; post_id: string; error: string }>>(
+      "/api/publish/tiktok/bulk",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clips: publishData.map((d) => ({
+            clip_id: `${jobId}:${d.clipIndex}`,
+            caption: d.caption,
+            title: d.title,
+            schedule_time: d.scheduleTime || null,
+          })),
+        }),
+      },
+    );
   };
 
   const loadJobFromHistory = useCallback(
@@ -465,12 +542,16 @@ export default function App() {
                   canRegenerate={canRegenerate}
                   canPublish={canPublish}
                   logs={logs}
+                  clipCaptions={clipCaptions}
+                  clipCaptionLoading={clipCaptionLoading}
                   onRestart={handleRestart}
                   onRegenerate={handleRegenerate}
                   onPublish={handlePublish}
                   onStartNew={handleStartNew}
                   onOpenClip={setModalClip}
                   onReviewClip={handleReview}
+                  onPublishClip={handlePublishClip}
+                  onPublishAllApproved={handlePublishAllApproved}
                 />
               )}
             </>

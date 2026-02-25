@@ -70,6 +70,45 @@ class PublishApprovedResponse(BaseModel):
     failed_count: int
 
 
+class GenerateCaptionRequest(BaseModel):
+    clip_id: str
+    transcript: str
+
+
+class GenerateCaptionResponse(BaseModel):
+    caption: str
+
+
+class PublishTikTokRequest(BaseModel):
+    clip_id: str
+    caption: str
+    title: str
+    schedule_time: str | None = None
+
+
+class PublishTikTokResponse(BaseModel):
+    success: bool
+    post_id: str = ""
+
+
+class BulkClipPublishItem(BaseModel):
+    clip_id: str
+    caption: str
+    title: str
+    schedule_time: str | None = None
+
+
+class BulkPublishTikTokRequest(BaseModel):
+    clips: list[BulkClipPublishItem]
+
+
+class BulkClipPublishResult(BaseModel):
+    clip_id: str
+    success: bool
+    post_id: str = ""
+    error: str = ""
+
+
 class SubtitlePreviewRequest(BaseModel):
     subtitle_font_name: str | None = Field(default=None, min_length=1, max_length=64)
     subtitle_font_size: int | None = Field(default=None, ge=16, le=96)

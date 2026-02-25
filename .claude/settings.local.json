@@ -17,7 +17,16 @@
       "Bash(fi)",
       "Bash(python -m py_compile:*)",
       "Bash(python:*)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Bash(curl:*)",
+      "Bash(dig +short temporal.blipr.co)",
+      "Bash(cd /Users/gonzalopena/Projects/codex-tiktok && .venv/bin/python -c \"from app.services.postiz import upload_clip, generate_caption, post_to_tiktok, publish_clip; from app.main import app; print\\('OK'\\)\" 2>&1)",
+      "Bash(.venv/bin/python -c \"\nfrom app.config import get_settings\ns = get_settings\\(\\)\nprint\\('postiz_base_url:', s.postiz_base_url\\)\nprint\\('postiz_api_key:', s.postiz_api_key[:10] + '...' if s.postiz_api_key else '\\(empty\\)'\\)\nprint\\('tiktok_integration_id:', s.postiz_tiktok_integration_id\\)\n\" 2>&1)",
+      "Bash(.venv/bin/python -c \"\nfrom app.main import app\nfor route in app.routes:\n    if hasattr\\(route, 'methods'\\):\n        print\\(list\\(route.methods\\), route.path\\)\n\" 2>&1 | grep -E \"publish|api\")",
+      "Bash(cd /Users/gonzalopena/Projects/codex-tiktok && .venv/bin/pip install \"boto3>=1.35.0\" -q 2>&1 | tail -3)",
+      "Bash(.venv/bin/python -c \"\nfrom app.services.r2 import upload_clip, delete_clip, R2UploadError\nfrom app.services.postiz import upload_to_r2, generate_caption, post_to_tiktok, publish_clip\nfrom app.main import app\nprint\\('All imports OK'\\)\n\" 2>&1)",
+      "Bash(.venv/bin/python -c \"\nfrom app.config import get_settings\ns = get_settings\\(\\)\n# Confirm R2 fields are present \\(empty strings until configured\\)\nprint\\('r2_account_id field exists:', hasattr\\(s, 'r2_account_id'\\)\\)\nprint\\('r2_bucket_name field exists:', hasattr\\(s, 'r2_bucket_name'\\)\\)\nprint\\('r2_public_url field exists:', hasattr\\(s, 'r2_public_url'\\)\\)\n\" 2>&1)",
+      "Bash(.venv/bin/python -c \"\nfrom app.services.r2 import upload_clip, R2UploadError\nfrom app.config import Settings\n\n# Simulate missing config\ns = Settings\\(r2_account_id=''\\)\ntry:\n    upload_clip\\('/tmp/test.mp4', 'job1-1', s\\)\nexcept R2UploadError as e:\n    print\\('Correct error:', e\\)\n\" 2>&1)"
     ]
   }
 }

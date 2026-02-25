@@ -1,4 +1,4 @@
-# ClipMaker: YouTube -> Clips Virales Automatizado
+# Blipr: YouTube -> Clips Virales Automatizado
 
 Pipeline end-to-end para convertir un video largo de YouTube en clips verticales (9:16) listos para TikTok/Instagram:
 
@@ -157,7 +157,7 @@ Variables principales en `postiz/.postiz.env`:
 - `TEMPORAL_ADDRESS`: `temporal:7233`
 - APIs de redes sociales: `TIKTOK_CLIENT_ID`, `TIKTOK_CLIENT_SECRET`, etc. (vacias por defecto, configurar segun necesidad)
 
-### Integrar con ClipMaker
+### Integrar con Blipr
 
 1. Abrir http://localhost:4007 y crear usuario.
 2. Conectar TikTok y generar API key de la Public API.

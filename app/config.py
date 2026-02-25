@@ -41,14 +41,26 @@ class Settings(BaseSettings):
     transcription_entity_replacements: str = Field(default="")
     transcription_hint_terms: str = Field(default="")
     tiktok_publish_mode: str = Field(default="mock")
-    postiz_base_url: str = Field(default="http://localhost:5000/api")
+    postiz_base_url: str = Field(
+        default="http://localhost:5000/api",
+        validation_alias=AliasChoices("POSTIZ_API_URL", "POSTIZ_BASE_URL"),
+    )
     postiz_api_key: str = Field(default="")
-    postiz_tiktok_integration_id: str = Field(default="")
+    postiz_tiktok_integration_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("TIKTOK_INTEGRATION_ID", "POSTIZ_TIKTOK_INTEGRATION_ID"),
+    )
     postiz_tiktok_privacy_status: str = Field(default="PUBLIC_TO_EVERYONE")
     postiz_tiktok_disable_duet: bool = Field(default=False)
     postiz_tiktok_disable_comment: bool = Field(default=False)
     postiz_tiktok_disable_stitch: bool = Field(default=False)
     postiz_request_timeout_seconds: float = Field(default=60.0)
+
+    r2_account_id: str = Field(default="")
+    r2_access_key_id: str = Field(default="")
+    r2_secret_access_key: str = Field(default="")
+    r2_bucket_name: str = Field(default="")
+    r2_public_url: str = Field(default="")
 
     yt_cookies_file: str = Field(
         default="",

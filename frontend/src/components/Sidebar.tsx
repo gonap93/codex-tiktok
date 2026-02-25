@@ -14,8 +14,8 @@ export function Sidebar({ activePage, onNavigate, collapsed, onToggleCollapse, r
     <aside className={`sidebar${collapsed ? " sidebar--collapsed" : ""}`}>
       <div className="sidebar-top-row">
         <div className="sidebar-user">
-          <div className="sidebar-avatar">C</div>
-          <span className="sidebar-username">Clipper</span>
+          <img src="/blipr_logo.png" alt="Blipr" className="sidebar-logo" />
+          <span className="sidebar-username">Blipr</span>
         </div>
         <button
           className="sidebar-collapse-btn"
@@ -70,7 +70,7 @@ export function Sidebar({ activePage, onNavigate, collapsed, onToggleCollapse, r
             <line x1="14.47" y1="14.48" x2="20" y2="20" />
             <line x1="8.12" y1="8.12" x2="12" y2="12" />
           </svg>
-          <span>Clipper</span>
+          <span>Blipr</span>
         </button>
         <button
           className={`sidebar-item ${activePage === "channels" ? "sidebar-item--active" : ""}`}

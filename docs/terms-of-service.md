@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Terms of Service - ClipMaker
+title: Terms of Service - Blipr
 permalink: /terms-of-service
 ---
 
@@ -10,26 +10,26 @@ permalink: /terms-of-service
 
 ## 1. Acceptance of Terms
 
-By accessing or using ClipMaker ("the Service"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Service.
+By accessing or using Blipr ("the Service"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Service.
 
 ## 2. Description of Service
 
-ClipMaker is a content creation tool that helps users generate short-form video clips from longer video content for publication on social media platforms, including TikTok. The Service uses artificial intelligence to analyze video content, identify compelling segments, and produce optimized clips.
+Blipr is a content creation tool that helps users generate short-form video clips from longer video content for publication on social media platforms, including TikTok. The Service uses artificial intelligence to analyze video content, identify compelling segments, and produce optimized clips.
 
 ## 3. Eligibility
 
-You must be at least 13 years of age to use the Service. By using ClipMaker, you represent and warrant that you meet this age requirement. If you are under 18, you represent that your parent or legal guardian has reviewed and agreed to these Terms.
+You must be at least 13 years of age to use the Service. By using Blipr, you represent and warrant that you meet this age requirement. If you are under 18, you represent that your parent or legal guardian has reviewed and agreed to these Terms.
 
 ## 4. User Accounts and Authorization
 
-When you connect your TikTok account to ClipMaker, you authorize the Service to access your TikTok account information and publish content on your behalf through the TikTok Content Posting API. You are responsible for maintaining the security of your account credentials and for all activity that occurs under your account.
+When you connect your TikTok account to Blipr, you authorize the Service to access your TikTok account information and publish content on your behalf through the TikTok Content Posting API. You are responsible for maintaining the security of your account credentials and for all activity that occurs under your account.
 
 ## 5. User Content and Intellectual Property
 
 - You retain ownership of all content you create using the Service.
-- You are solely responsible for ensuring that you have the necessary rights and permissions to use any source video content submitted to ClipMaker.
-- By using the Service, you grant ClipMaker a limited, non-exclusive license to process, modify, and transform your submitted content solely for the purpose of generating clips.
-- Generated clips remain your property. ClipMaker does not claim ownership over any content produced through the Service.
+- You are solely responsible for ensuring that you have the necessary rights and permissions to use any source video content submitted to Blipr.
+- By using the Service, you grant Blipr a limited, non-exclusive license to process, modify, and transform your submitted content solely for the purpose of generating clips.
+- Generated clips remain your property. Blipr does not claim ownership over any content produced through the Service.
 
 ## 6. Acceptable Use
 
@@ -44,24 +44,24 @@ You agree not to use the Service to:
 
 ## 7. Third-Party Services
 
-ClipMaker integrates with third-party services including TikTok and YouTube. Your use of these services through ClipMaker is also subject to their respective terms of service and policies. ClipMaker is not responsible for the availability, accuracy, or practices of any third-party services.
+Blipr integrates with third-party services including TikTok and YouTube. Your use of these services through Blipr is also subject to their respective terms of service and policies. Blipr is not responsible for the availability, accuracy, or practices of any third-party services.
 
 ## 8. TikTok API Usage
 
-ClipMaker accesses TikTok's platform through official APIs, including the Content Posting API and Login Kit. By using these features, you acknowledge and agree that:
+Blipr accesses TikTok's platform through official APIs, including the Content Posting API and Login Kit. By using these features, you acknowledge and agree that:
 
-- You authorize ClipMaker to post video content to your TikTok account on your behalf.
+- You authorize Blipr to post video content to your TikTok account on your behalf.
 - You may revoke this authorization at any time through your TikTok account settings.
-- Your use of TikTok through ClipMaker is subject to TikTok's Terms of Service and Community Guidelines.
-- ClipMaker is not affiliated with, endorsed by, or sponsored by TikTok.
+- Your use of TikTok through Blipr is subject to TikTok's Terms of Service and Community Guidelines.
+- Blipr is not affiliated with, endorsed by, or sponsored by TikTok.
 
 ## 9. Disclaimers
 
-THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED. CLIPMAKER DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE. CLIPMAKER MAKES NO GUARANTEES REGARDING THE PERFORMANCE, REACH, OR ENGAGEMENT OF ANY CONTENT PUBLISHED THROUGH THE SERVICE.
+THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED. BLIPR DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE. BLIPR MAKES NO GUARANTEES REGARDING THE PERFORMANCE, REACH, OR ENGAGEMENT OF ANY CONTENT PUBLISHED THROUGH THE SERVICE.
 
 ## 10. Limitation of Liability
 
-TO THE MAXIMUM EXTENT PERMITTED BY LAW, CLIPMAKER SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO YOUR USE OF THE SERVICE, INCLUDING BUT NOT LIMITED TO LOSS OF DATA, LOSS OF REVENUE, OR ANY ACTIONS TAKEN BY TIKTOK OR OTHER PLATFORMS REGARDING YOUR ACCOUNT.
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, BLIPR SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO YOUR USE OF THE SERVICE, INCLUDING BUT NOT LIMITED TO LOSS OF DATA, LOSS OF REVENUE, OR ANY ACTIONS TAKEN BY TIKTOK OR OTHER PLATFORMS REGARDING YOUR ACCOUNT.
 
 ## 11. Data Processing
 

@@ -70,7 +70,15 @@ def _request_postiz(settings: Settings, method: str, path: str, **kwargs: Any) -
 
     if response.status_code >= 400:
         detail = _parse_api_error(response)
-        raise PostizPublisherError(f"Postiz devolvio {response.status_code}: {detail}")
+        extra = ""
+        try:
+            body = response.json()
+            if isinstance(body, dict) and body.get("errors"):
+                extra = " " + str(body["errors"])
+        except ValueError:
+            if response.text.strip():
+                extra = f" Body: {response.text[:500]}"
+        raise PostizPublisherError(f"Postiz devolvio {response.status_code}: {detail}{extra}")
 
     if not response.content:
         return {}

@@ -15,12 +15,16 @@ interface PipelinePanelProps {
   canRegenerate: boolean;
   canPublish: boolean;
   logs: string[];
+  clipCaptions: Record<number, string>;
+  clipCaptionLoading: Set<number>;
   onRestart: () => void;
   onRegenerate: () => void;
   onPublish: () => void;
   onStartNew: () => void;
   onOpenClip: (clip: ClipArtifact) => void;
   onReviewClip: (clipIndex: number, approved: boolean | null, rejectionReason?: string) => void;
+  onPublishClip: (clipIndex: number, caption: string, title: string, scheduleTime: string | null) => Promise<{ success: boolean; post_id: string }>;
+  onPublishAllApproved: (publishData: Array<{ clipIndex: number; caption: string; title: string; scheduleTime: string | null }>) => Promise<Array<{ clip_id: string; success: boolean; post_id: string; error: string }>>;
 }
 
 function statusLabel(status?: JobState["status"]): string {
@@ -76,12 +80,16 @@ export function PipelinePanel({
   canRegenerate,
   canPublish,
   logs,
+  clipCaptions,
+  clipCaptionLoading,
   onRestart,
   onRegenerate,
   onPublish,
   onStartNew,
   onOpenClip,
   onReviewClip,
+  onPublishClip,
+  onPublishAllApproved,
 }: PipelinePanelProps) {
   const isError = job?.status === "failed";
   const isCompleted = job?.status === "completed";
@@ -151,6 +159,10 @@ export function PipelinePanel({
           canPublish={canPublish}
           busyAction={busyAction}
           onPublish={onPublish}
+          clipCaptions={clipCaptions}
+          clipCaptionLoading={clipCaptionLoading}
+          onPublishClip={onPublishClip}
+          onPublishAllApproved={onPublishAllApproved}
         />
       )}
 

@@ -9,10 +9,16 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.models import (
+    BulkClipPublishResult,
+    BulkPublishTikTokRequest,
     ClipReviewRequest,
+    GenerateCaptionRequest,
+    GenerateCaptionResponse,
     JobCreateRequest,
     JobCreateResponse,
     PublishApprovedResponse,
+    PublishTikTokRequest,
+    PublishTikTokResponse,
     RegenerateRequest,
     RestartRequest,
     SubtitlePreviewRequest,
@@ -32,13 +38,16 @@ from app.services.state import (
     unsubscribe,
     update_job_requests,
 )
+from app.services.postiz import PostizPublisherError as PostizError
+from app.services.postiz import generate_caption as gen_caption
+from app.services.postiz import publish_clip as postiz_publish_clip
 from app.services.tiktok_publisher import PostizPublisherError, list_tiktok_integrations, publish_to_tiktok
 
 settings = get_settings()
 _job_tasks: dict[str, asyncio.Task] = {}
 
 app = FastAPI(
-    title="ClipMaker API",
+    title="Blipr API",
     description="YouTube -> Clips virales automatizado",
     version="0.1.0",
 )
@@ -392,13 +401,46 @@ async def publish_approved(job_id: str) -> PublishApprovedResponse:
     return PublishApprovedResponse(published_count=published_count, failed_count=failed_count)
 
 
+def _postiz_base_app_url() -> str:
+    """Derive Postiz app root URL from postiz_base_url (no /api/...)."""
+    base = (settings.postiz_base_url or "").strip().rstrip("/")
+    for suffix in ("/api/public/v1", "/api/public", "/api"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)].rstrip("/")
+            break
+    return base or "https://postiz.blipr.co"
+
+
+def _postiz_tiktok_connect_url() -> str:
+    """URL to add TikTok (first connection)."""
+    return f"{_postiz_base_app_url()}/integrations/social/tiktok"
+
+
+def _postiz_manage_integrations_url() -> str:
+    """URL to manage integrations / add another account (avoids 'Could not add provider' when already connected)."""
+    return f"{_postiz_base_app_url()}/integrations/social"
+
+
 @app.get("/api/publishing/tiktok/integrations")
 async def tiktok_integrations() -> dict:
+    connect_url = _postiz_tiktok_connect_url()
+    manage_url = _postiz_manage_integrations_url()
     try:
         integrations = await asyncio.to_thread(list_tiktok_integrations, settings)
+        return {
+            "connect_url": connect_url,
+            "manage_url": manage_url,
+            "count": len(integrations),
+            "integrations": integrations,
+        }
     except PostizPublisherError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"count": len(integrations), "integrations": integrations}
+        return {
+            "connect_url": connect_url,
+            "manage_url": manage_url,
+            "count": 0,
+            "integrations": [],
+            "error": str(exc),
+        }
 
 
 @app.post("/api/preview/subtitle-frame", response_model=SubtitlePreviewResponse)
@@ -446,6 +488,120 @@ async def youtube_oembed(url: str) -> dict:
             return resp.json()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"No se pudo obtener metadata: {exc}") from exc
+
+
+@app.post("/api/publish/generate-caption", response_model=GenerateCaptionResponse)
+async def generate_caption_endpoint(payload: GenerateCaptionRequest) -> GenerateCaptionResponse:
+    try:
+        caption = await asyncio.to_thread(
+            gen_caption,
+            payload.transcript,
+            payload.clip_id,
+            settings,
+        )
+        return GenerateCaptionResponse(caption=caption)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _clip_file_path(job_id: str, clip_url: str) -> Path:
+    return (settings.jobs_dir / job_id / Path(clip_url).name).resolve()
+
+
+def _parse_clip_id(clip_id: str) -> tuple[str, int]:
+    parts = clip_id.split(":", 1)
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="clip_id invalido. Formato esperado: job_id:clip_index")
+    job_id, index_str = parts
+    try:
+        return job_id, int(index_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="clip_id invalido: clip_index debe ser entero.")
+
+
+@app.post("/api/publish/tiktok", response_model=PublishTikTokResponse)
+async def publish_tiktok_single(payload: PublishTikTokRequest) -> PublishTikTokResponse:
+    job_id, clip_index = _parse_clip_id(payload.clip_id)
+
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado.")
+
+    clip = next((c for c in job.clips if c.index == clip_index), None)
+    if clip is None:
+        raise HTTPException(status_code=404, detail="Clip no encontrado.")
+
+    clip_path = _clip_file_path(job_id, clip.url)
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail=f"Archivo del clip no encontrado: {clip_path.name}")
+
+    await set_clip_publish_status(job_id, clip_index, status="publishing")
+    try:
+        result = await asyncio.to_thread(
+            postiz_publish_clip,
+            str(clip_path),
+            payload.clip_id,
+            payload.caption,
+            payload.title,
+            payload.schedule_time,
+            settings,
+        )
+        post_id = str(result.get("post_id", ""))
+        await set_clip_publish_status(job_id, clip_index, status="published", post_id=post_id)
+        return PublishTikTokResponse(success=True, post_id=post_id)
+    except (PostizError, PostizPublisherError) as exc:
+        await set_clip_publish_status(job_id, clip_index, status="failed", error=str(exc))
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        await set_clip_publish_status(job_id, clip_index, status="failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/publish/tiktok/bulk", response_model=list[BulkClipPublishResult])
+async def publish_tiktok_bulk(payload: BulkPublishTikTokRequest) -> list[BulkClipPublishResult]:
+    results: list[BulkClipPublishResult] = []
+
+    for item in payload.clips:
+        try:
+            job_id, clip_index = _parse_clip_id(item.clip_id)
+        except HTTPException as exc:
+            results.append(BulkClipPublishResult(clip_id=item.clip_id, success=False, error=exc.detail))
+            continue
+
+        job = await get_job(job_id)
+        if job is None:
+            results.append(BulkClipPublishResult(clip_id=item.clip_id, success=False, error="Job no encontrado."))
+            continue
+
+        clip = next((c for c in job.clips if c.index == clip_index), None)
+        if clip is None:
+            results.append(BulkClipPublishResult(clip_id=item.clip_id, success=False, error="Clip no encontrado."))
+            continue
+
+        clip_path = _clip_file_path(job_id, clip.url)
+        if not clip_path.exists():
+            results.append(BulkClipPublishResult(clip_id=item.clip_id, success=False, error=f"Archivo no encontrado: {clip_path.name}"))
+            continue
+
+        await set_clip_publish_status(job_id, clip_index, status="publishing")
+        try:
+            result = await asyncio.to_thread(
+                postiz_publish_clip,
+                str(clip_path),
+                item.clip_id,
+                item.caption,
+                item.title,
+                item.schedule_time,
+                settings,
+            )
+            post_id = str(result.get("post_id", ""))
+            await set_clip_publish_status(job_id, clip_index, status="published", post_id=post_id)
+            results.append(BulkClipPublishResult(clip_id=item.clip_id, success=True, post_id=post_id))
+        except Exception as exc:
+            await set_clip_publish_status(job_id, clip_index, status="failed", error=str(exc))
+            results.append(BulkClipPublishResult(clip_id=item.clip_id, success=False, error=str(exc)))
+
+    return results
 
 
 @app.get("/{full_path:path}")

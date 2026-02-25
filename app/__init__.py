@@ -1,1 +1,1 @@
-# ClipMaker package
+# Blipr package
