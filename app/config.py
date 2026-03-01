@@ -70,6 +70,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("YTDLP_COOKIES_BROWSER", "YT_COOKIES_BROWSER"),
     )
+    yt_proxy: str = Field(
+        default="",
+        validation_alias=AliasChoices("YTDLP_PROXY", "YT_PROXY"),
+    )
 
     jobs_dir: Path = Field(default=Path("jobs"))
     static_dir: Path = Field(default=Path("static"))

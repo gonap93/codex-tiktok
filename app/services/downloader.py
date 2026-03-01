@@ -59,6 +59,8 @@ def download_youtube_video(youtube_url: str, output_dir: Path, settings: Setting
         },
     }
 
+    if settings.yt_proxy:
+        base_opts["proxy"] = settings.yt_proxy
     if settings.yt_cookies_file:
         base_opts["cookiefile"] = _prepare_cookie_file(settings, output_dir)
     elif settings.yt_cookies_browser:
