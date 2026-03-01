@@ -1,10 +1,13 @@
 import json
+import logging
 import re
 from typing import Any
 
 from openai import OpenAI
 
 from app.config import Settings
+
+log = logging.getLogger(__name__)
 
 INTRO_PATTERNS = (
     "bienvenido",
@@ -163,6 +166,200 @@ LANGUAGE_PROMPT_EN = (
 MIN_NATURAL_MAX_CLIP_SECONDS = 90.0
 END_BUFFER_SECONDS = 1.3
 SENTENCE_BREAK_GAP_SECONDS = 0.45
+# Minimum clip target before the extension loop is allowed to stop at a natural break.
+# Prevents short AI suggestions (~24 s) from stopping at the first sentence boundary.
+MIN_CLIP_TARGET_SECONDS = 35.0
+
+# ---------------------------------------------------------------------------
+# Virality scoring signal tables
+# ---------------------------------------------------------------------------
+
+# Common stopwords excluded from information-density calculation (Spanish + English).
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        # Spanish
+        "de", "la", "el", "en", "y", "a", "que", "es", "se", "no", "un", "una",
+        "los", "las", "del", "al", "lo", "por", "con", "su", "para", "como",
+        "mas", "pero", "sus", "le", "ya", "o", "fue", "hay", "si",
+        "porque", "este", "esta", "estos", "estas", "ese", "esa", "esos", "esas",
+        "muy", "tan", "tambien", "me", "te", "nos", "les", "mi",
+        "son", "ha", "han", "era", "ser", "estar", "sido", "tiene", "tienen",
+        "puede", "pueden", "hacer", "hace", "hizo", "sobre", "desde", "hasta",
+        "cuando", "donde", "quien", "todo", "todos", "toda", "todas",
+        "otro", "otra", "otros", "otras", "mismo", "misma",
+        # English
+        "the", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "it", "its", "this", "that", "these", "those",
+        "he", "she", "we", "they", "my", "your", "his", "her",
+        "our", "their", "what", "which", "who", "how", "when", "where", "why",
+        "so", "if", "as", "not", "just", "about", "also", "then", "than",
+        "up", "can", "there", "all", "more", "some", "into", "out", "like",
+        "get", "got", "one", "two", "three",
+    }
+)
+
+# Emotional / surprise / high-engagement words (Spanish + English).
+# Accent-stripped lowercase forms so matching works on normalized Whisper output.
+_EMOTION_WORDS: tuple[str, ...] = (
+    # Spanish
+    "increible", "jamas", "nunca", "secreto", "error",
+    "sorpresa", "impresionante", "brutal", "clave", "revelo",
+    "descubri", "cambio", "importante", "unico",
+    "mejor", "peor", "primera vez", "nunca antes", "revelacion",
+    "explosivo", "impactante", "radical", "tremendo",
+    "definitivamente", "totalmente",
+    # English
+    "never", "secret", "incredible", "amazing", "shocking", "revealed",
+    "discovered", "changed", "important", "unique", "best", "worst",
+    "first time", "never before", "explosive", "massive", "insane", "unreal",
+    "mindblowing", "unbelievable", "extraordinary", "critical",
+)
+
+# Strong opinion / authenticity markers (Spanish + English).
+_OPINION_MARKERS: tuple[str, ...] = (
+    # Spanish
+    "yo creo", "la verdad", "honestamente", "te digo que", "lo que nadie",
+    "el problema es", "francamente", "siendo honesto", "en realidad",
+    "lo que pasa", "la realidad es", "mi opinion",
+    "sere honesto", "debo admitir", "tengo que decir",
+    # English
+    "i believe", "the truth is", "honestly", "let me tell you", "nobody talks",
+    "the problem is", "frankly", "to be honest", "the reality is",
+    "what actually", "in my opinion", "i have to say", "i must admit",
+    "real talk", "ill be honest",
+)
+
+# Storytelling peak / narrative transition markers (Spanish + English).
+_STORY_PEAKS: tuple[str, ...] = (
+    # Spanish
+    "entonces", "de repente", "fue cuando", "lo que paso",
+    "en ese momento", "y resulta", "de pronto", "ahi fue",
+    "y justo", "fue entonces", "en ese instante", "fue ahi",
+    # English
+    "and then", "suddenly", "what happened", "at that moment",
+    "and it turns out", "all of a sudden", "right then", "just then",
+    "that was when", "at that point",
+)
+
+# Call-to-action / direct address phrases (multi-word; single tokens handled separately).
+_CTA_PHRASES: tuple[str, ...] = (
+    # Spanish
+    "imaginate", "pensalo", "imagina que", "piensa en",
+    "fijate que", "considera que",
+    # English
+    "imagine that", "think about", "consider this", "remember that",
+    "look at this", "notice how", "listen to", "ask yourself",
+)
+
+
+def _strip_accents_lower(text: str) -> str:
+    """Return *text* lowercased with common Spanish accent chars replaced by
+    their unaccented ASCII equivalents, so signal matching works regardless
+    of whether Whisper preserved accents in the output."""
+    table = str.maketrans(
+        "\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc\u00c1\u00c9\u00cd\u00d3\u00da\u00dc\u00f1\u00d1",
+        "aeiouuAEIOUUunN",
+    )
+    return text.lower().translate(table)
+
+
+def _compute_virality_score(text: str) -> float:
+    """Return a 0.0–1.0 virality score for a transcript text segment.
+
+    Each signal is individually capped so no single dimension dominates:
+
+    - Question hooks (``?`` / ``\\u00bf`` near start):  max +0.15
+    - Emotional / surprise language:                    max +0.25
+    - Strong opinion markers:                           +0.10
+    - Storytelling peak / narrative transitions:        +0.08
+    - Call-to-action / direct address:                  +0.05
+    - Information density (unique meaningful words):    max +0.15
+    - Sentence count (prefer 3-6 complete sentences):   max +0.10
+    """
+    normalized = _strip_accents_lower(text)
+    words = re.findall(r"\w+", normalized)
+    total_words = len(words)
+
+    score = 0.0
+
+    # Question hooks: bonus is higher when the question opens the clip.
+    question_count = text.count("?") + text.count("\u00bf")
+    if question_count:
+        first_120 = text[:120]
+        if "?" in first_120 or "\u00bf" in first_120:
+            score += 0.15
+        else:
+            score += 0.10
+
+    # Emotional / surprise language.
+    emotion_hits = sum(1 for phrase in _EMOTION_WORDS if phrase in normalized)
+    score += min(emotion_hits * 0.10, 0.25)
+
+    # Strong opinion markers.
+    if any(marker in normalized for marker in _OPINION_MARKERS):
+        score += 0.10
+
+    # Storytelling peaks.
+    if any(peak in normalized for peak in _STORY_PEAKS):
+        score += 0.08
+
+    # Call-to-action / direct address.
+    cta_hit = any(phrase in normalized for phrase in _CTA_PHRASES)
+    if not cta_hit:
+        direct_tokens = {"ustedes", "tu", "you"}
+        cta_hit = bool(direct_tokens & set(words))
+    if cta_hit:
+        score += 0.05
+
+    # Information density: unique meaningful words / total words.
+    if total_words > 0:
+        meaningful = [w for w in words if w not in _STOPWORDS and len(w) > 2]
+        unique_meaningful = len(set(meaningful))
+        density_ratio = unique_meaningful / total_words
+        score += min(density_ratio * 0.27, 0.15)
+
+    # Sentence count: prefer 3-6 complete sentences in the segment.
+    sentence_ends = len(re.findall(r"[.!?]", text))
+    if 3 <= sentence_ends <= 6:
+        score += 0.10
+    elif sentence_ends in (2, 7):
+        score += 0.05
+    elif sentence_ends == 1:
+        score += 0.02
+
+    return round(min(score, 1.0), 4)
+
+
+def _apply_score_based_duration_cap(
+    start: float,
+    end: float,
+    virality_score: float,
+    max_clip_seconds: float,
+) -> tuple[float, float]:
+    """Cap clip duration based on virality score tiers.
+
+    Applied AFTER boundary alignment as an additional trim pass.
+    Start time is never modified; only *end* may be reduced.
+
+    Tiers:
+    - High-scoring (> 0.65):    full ``max_clip_seconds``
+    - Medium-scoring (0.40-0.65): 75% of ``max_clip_seconds``
+    - Low-scoring (< 0.40):     55% of ``max_clip_seconds``
+    """
+    if virality_score > 0.65:
+        effective_cap = max_clip_seconds
+    elif virality_score >= 0.40:
+        effective_cap = max_clip_seconds * 0.75
+    else:
+        effective_cap = max_clip_seconds * 0.55
+
+    current_duration = end - start
+    if current_duration > effective_cap:
+        end = start + effective_cap
+
+    return start, round(end, 3)
 
 
 def _extract_json_block(text: str) -> dict[str, Any]:
@@ -222,6 +419,136 @@ def _starts_clean_phrase(segments: list[dict], idx: int) -> bool:
     return gap >= 0.35 or _starts_new_idea(text) or _ends_idea(str(prev.get("text", "")))
 
 
+_SENTENCE_END_RE = re.compile(r"[.!?]$|\.\.\.$")
+_WORD_BOUNDARY_GAP = 0.5  # seconds — pause gap treated as a sentence boundary
+
+
+def _word_ends_sentence(word_text: str) -> bool:
+    """Return True if *word_text* ends with sentence-terminal punctuation."""
+    return bool(_SENTENCE_END_RE.search(word_text.rstrip()))
+
+
+def _find_sentence_start(
+    words: list[dict],
+    target_time: float,
+    max_lookback: float = 3.0,
+) -> float:
+    """Return the start time of the nearest sentence boundary before *target_time*.
+
+    Walk backward from *target_time* looking for a word whose predecessor ends a
+    sentence (punctuation) or is separated by a pause >= 0.5 s.  If a boundary is
+    found within *max_lookback* seconds, return that word's start time.
+
+    If no boundary is found looking backward, walk forward up to 2.0 s from
+    *target_time* and return the first sentence-start found there.
+
+    Falls back to *target_time* unchanged when no boundary can be located.
+    """
+    if not words:
+        return target_time
+
+    # Find the index of the first word at or after target_time.
+    anchor_idx = 0
+    for idx, word in enumerate(words):
+        if float(word["start"]) <= target_time:
+            anchor_idx = idx
+        else:
+            break
+
+    # Walk backward — look for a word that starts a new sentence (its predecessor
+    # ends a sentence, or there is a pause gap before it).
+    earliest_allowed = target_time - max_lookback
+    for idx in range(anchor_idx, 0, -1):
+        word_start = float(words[idx]["start"])
+        if word_start < earliest_allowed:
+            break
+        prev_word = words[idx - 1]
+        gap = word_start - float(prev_word["end"])
+        if _word_ends_sentence(str(prev_word["word"])) or gap >= _WORD_BOUNDARY_GAP:
+            return word_start
+
+    # If idx reached 0 the very first word is always a clean start.
+    if anchor_idx == 0 or (anchor_idx > 0 and float(words[0]["start"]) >= earliest_allowed):
+        return float(words[0]["start"])
+
+    # Walk forward — accept the next sentence-start up to 2.0 s ahead.
+    forward_limit = target_time + 2.0
+    for idx in range(1, len(words)):
+        word_start = float(words[idx]["start"])
+        if word_start > forward_limit:
+            break
+        if word_start < target_time:
+            continue
+        prev_word = words[idx - 1]
+        gap = word_start - float(prev_word["end"])
+        if _word_ends_sentence(str(prev_word["word"])) or gap >= _WORD_BOUNDARY_GAP:
+            return word_start
+
+    return target_time
+
+
+def _find_sentence_end(
+    words: list[dict],
+    target_time: float,
+    max_lookahead: float = 3.0,
+) -> float:
+    """Return the end time of the nearest sentence boundary after *target_time*.
+
+    Walk forward from *target_time* looking for a word that ends a sentence
+    (punctuation) or is followed by a pause >= 0.5 s.  If found within
+    *max_lookahead* seconds, return the end time of that word.
+
+    If no boundary is found looking forward, walk backward up to 2.0 s from
+    *target_time* and return the end time of the last sentence-ending word found.
+
+    Falls back to *target_time* unchanged when no boundary can be located.
+    """
+    if not words:
+        return target_time
+
+    latest_allowed = target_time + max_lookahead
+
+    # Find the first word whose end is at or past target_time.
+    start_idx = 0
+    for idx, word in enumerate(words):
+        if float(word["end"]) < target_time:
+            start_idx = idx
+        else:
+            break
+
+    # Walk forward — look for a sentence-ending word within max_lookahead.
+    for idx in range(start_idx, len(words)):
+        word_end = float(words[idx]["end"])
+        if word_end > latest_allowed:
+            break
+        word_start = float(words[idx]["start"])
+        if word_start < target_time:
+            continue
+        next_gap_is_pause = (
+            idx < len(words) - 1
+            and float(words[idx + 1]["start"]) - word_end >= _WORD_BOUNDARY_GAP
+        )
+        if _word_ends_sentence(str(words[idx]["word"])) or next_gap_is_pause:
+            return word_end
+
+    # Walk backward — accept a sentence end up to 2.0 s before target_time.
+    backward_limit = target_time - 2.0
+    for idx in range(len(words) - 1, -1, -1):
+        word_end = float(words[idx]["end"])
+        if word_end > target_time:
+            continue
+        if word_end < backward_limit:
+            break
+        next_gap_is_pause = (
+            idx < len(words) - 1
+            and float(words[idx + 1]["start"]) - word_end >= _WORD_BOUNDARY_GAP
+        )
+        if _word_ends_sentence(str(words[idx]["word"])) or next_gap_is_pause:
+            return word_end
+
+    return target_time
+
+
 def _align_to_natural_boundaries(
     segments: list[dict],
     start: float,
@@ -230,6 +557,8 @@ def _align_to_natural_boundaries(
     total_duration: float,
     min_seconds: float,
     max_seconds: float,
+    words: list[dict] | None = None,
+    clip_index: int = 0,
 ) -> tuple[float, float]:
     if not segments:
         return _normalize_window(start, end, total_duration, min_seconds, max_seconds)
@@ -278,12 +607,23 @@ def _align_to_natural_boundaries(
                 start_idx = best_idx
 
     aligned_start = float(segments[start_idx]["start"])
-    requested_end = max(aligned_start + min_seconds, end)
+    # Enforce a minimum target so clips extend to a meaningful length even when
+    # the AI suggests a short window (e.g. 24 s).  The extension loops below
+    # respect this target before stopping at natural breaks.
+    effective_target = max(MIN_CLIP_TARGET_SECONDS, end - aligned_start)
+    requested_end = max(aligned_start + effective_target, end)
     end_idx = _segment_index_before_or_at(segments, requested_end)
     end_idx = max(start_idx, end_idx)
     effective_max_seconds = max(float(max_seconds), MIN_NATURAL_MAX_CLIP_SECONDS)
     hard_limit = min(total_duration, aligned_start + effective_max_seconds)
-    original_span = max(min_seconds, end - start)
+    original_span = max(MIN_CLIP_TARGET_SECONDS, end - start)
+
+    log.info(
+        "[clip %d] INPUT start=%.1f end=%.1f | aligned_start=%.1f requested_end=%.1f "
+        "original_span=%.1f hard_limit=%.1f total_dur=%.1f",
+        clip_index, start, end, aligned_start, requested_end,
+        original_span, hard_limit, total_duration,
+    )
 
     # Extend until the clip reaches a natural closure after the requested endpoint.
     while end_idx < len(segments) - 1:
@@ -300,13 +640,15 @@ def _align_to_natural_boundaries(
         natural_close = _ends_idea(str(cur["text"])) and (
             gap >= 0.18 or _starts_new_idea(str(nxt["text"]))
         )
-        if reached_requested_end and current_duration >= min_seconds and natural_close:
+        if reached_requested_end and current_duration >= original_span and natural_close:
             break
         if reached_requested_end and current_duration >= original_span and gap >= SENTENCE_BREAK_GAP_SECONDS:
             break
         end_idx += 1
 
-    # If still mid-sentence, keep extending until punctuation or pause.
+    # If still mid-sentence, keep extending until a sentence end or a long pause.
+    # We require at least original_span before stopping, and for short pauses we
+    # also require sentence-terminal punctuation so we don't cut mid-phrase.
     while end_idx < len(segments) - 1:
         cur = segments[end_idx]
         nxt = segments[end_idx + 1]
@@ -314,10 +656,13 @@ def _align_to_natural_boundaries(
         next_end = float(nxt["end"])
         if next_end > hard_limit:
             break
-        if _ends_idea(str(cur["text"])):
+        cur_text = str(cur["text"])
+        current_duration = cur_end - aligned_start
+        if _ends_idea(cur_text) and current_duration >= original_span:
             break
         gap = float(nxt["start"]) - cur_end
-        if gap >= SENTENCE_BREAK_GAP_SECONDS and (cur_end - aligned_start) >= min_seconds:
+        # Stop on a hard pause (>= 0.9 s) once we've hit minimum target — speaker clearly done.
+        if gap >= 0.9 and current_duration >= original_span:
             break
         end_idx += 1
 
@@ -332,6 +677,37 @@ def _align_to_natural_boundaries(
             break
         end_idx += 1
         aligned_end = candidate_end
+
+    # --- Word-level boundary refinement (on top of segment-level logic) ---
+    if words:
+        # Refine start: find nearest sentence start within ±3 s of aligned_start.
+        refined_start = _find_sentence_start(words, aligned_start)
+        # Only accept the refinement when it does not push the clip beyond max_seconds.
+        if refined_start <= aligned_start and aligned_end - refined_start <= effective_max_seconds:
+            aligned_start = refined_start
+
+        # Refine end: find nearest sentence end within +3 s / -2 s of aligned_end.
+        refined_end = _find_sentence_end(words, aligned_end - END_BUFFER_SECONDS)
+        # Accept refinement only when clip remains within bounds and is long enough.
+        if (
+            refined_end >= aligned_end - END_BUFFER_SECONDS
+            and refined_end <= hard_limit
+            and refined_end - aligned_start >= original_span
+        ):
+            # Re-apply the tail buffer on top of the word-level sentence end.
+            aligned_end = min(hard_limit, refined_end + END_BUFFER_SECONDS)
+
+    log.info(
+        "[clip %d] OUTPUT aligned_start=%.1f aligned_end=%.1f duration=%.1f",
+        clip_index, aligned_start, aligned_end, aligned_end - aligned_start,
+    )
+
+    # Diagnostic: log the first words of the clip so callers can verify start point.
+    if words and log.isEnabledFor(logging.DEBUG):
+        first_words = [
+            str(w["word"]) for w in words if float(w["start"]) >= aligned_start
+        ][:10]
+        log.debug("Clip %d starts at %.3fs: %s", clip_index, aligned_start, " ".join(first_words))
 
     return _normalize_window(
         aligned_start,
@@ -351,6 +727,7 @@ def _heuristic_moments(
     rejection_feedback: list[str] | None = None,
 ) -> list[dict]:
     segments = transcript["segments"]
+    transcript_words: list[dict] = transcript.get("words", [])
     total_duration = float(segments[-1]["end"])
     keywords = {
         "secreto",
@@ -398,14 +775,19 @@ def _heuristic_moments(
             total_duration=total_duration,
             min_seconds=min_seconds,
             max_seconds=max_seconds,
+            words=transcript_words,
+            clip_index=len(moments) + 1,
         )
         if any(abs(nstart - existing["start"]) < 18 for existing in moments):
             continue
+        vscore = _compute_virality_score(segment["text"])
+        nstart, nend = _apply_score_based_duration_cap(nstart, nend, vscore, max_seconds)
         moments.append(
             {
                 "title": segment["text"][:72].strip() or "Momento destacado",
                 "reason": "Segmento con alta densidad de gancho y potencial de retencion.",
                 "score": round(float(score), 3),
+                "virality_score": vscore,
                 "start": nstart,
                 "end": nend,
             }
@@ -423,12 +805,18 @@ def _heuristic_moments(
                 total_duration=total_duration,
                 min_seconds=min_seconds,
                 max_seconds=max_seconds,
+                words=transcript_words,
+                clip_index=len(moments) + 1,
             )
+            fallback_text = _window_text(segments, nstart, nend)
+            fallback_vscore = _compute_virality_score(fallback_text)
+            nstart, nend = _apply_score_based_duration_cap(nstart, nend, fallback_vscore, max_seconds)
             moments.append(
                 {
                     "title": f"Highlight {len(moments) + 1}",
                     "reason": "Fallback temporal uniforme.",
                     "score": 1.0,
+                    "virality_score": fallback_vscore,
                     "start": nstart,
                     "end": nend,
                 }
@@ -602,6 +990,7 @@ def choose_viral_moments(
     max_seconds = float(max_clip_seconds or settings.max_clip_seconds)
     max_seconds = max(max_seconds, min_seconds, MIN_NATURAL_MAX_CLIP_SECONDS)
     segments = transcript["segments"]
+    transcript_words: list[dict] = transcript.get("words", [])
     total_duration = float(segments[-1]["end"])
     clipped_segments = _build_prompt_segments(segments, max_segments=min(420, len(segments)))
     transcript_for_prompt = "\n".join(
@@ -696,8 +1085,8 @@ Rules:
 {count_rule}
 - Do not cut a clip mid-sentence, mid-laugh, mid-reaction, or before the punchline/resolution is delivered.
 - The clip end point must be after the moment reaches its natural conclusion; include the audience reaction or the speaker's final word on the topic.
-- Preferred duration is 30-60 seconds. Never truncate a moment to fit a duration target.
-- If a viral moment runs 45 seconds, the clip must be 45 seconds.
+- Duration must be 35-90 seconds. Minimum 35 seconds — never return an end time less than 35 s after the start.
+- If a viral moment runs 50 seconds, the clip must be 50 seconds. Never truncate to hit a target.
 {start_rule}
 - Do not repeat similar ideas.
 - Prioritize moments with strong/controversial opinions and/or concrete actionable advice.
@@ -729,8 +1118,8 @@ Reglas:
 {count_rule}
 - No cortes un clip a mitad de frase, de risa, de reaccion o antes del remate/resolucion.
 - El punto final del clip debe quedar despues de la conclusion natural; incluye reaccion de audiencia o la ultima palabra del speaker sobre el tema.
-- Duracion preferida: 30-60 segundos. Nunca trunques un momento para ajustarlo a un objetivo de duracion.
-- Si un momento viral dura 45 segundos, el clip debe durar 45 segundos.
+- Duracion: 35-90 segundos. Minimo 35 segundos — nunca devuelvas un end menos de 35 s despues del start.
+- Si un momento viral dura 50 segundos, el clip debe durar 50 segundos. Nunca trunques para cumplir un objetivo.
 {start_rule}
 - No repetir ideas similares.
 - Prioriza momentos con opinion fuerte/polemica y/o consejo accionable concreto.
@@ -758,7 +1147,7 @@ Transcripcion:
         payload = _extract_json_block(content)
         raw_moments = payload.get("moments", [])
         moments: list[dict] = []
-        for raw_moment in raw_moments:
+        for moment_idx, raw_moment in enumerate(raw_moments, start=1):
             start = float(raw_moment.get("start", 0.0))
             end = float(raw_moment.get("end", start + min_seconds))
             nstart, nend = _align_to_natural_boundaries(
@@ -768,12 +1157,18 @@ Transcripcion:
                 total_duration=total_duration,
                 min_seconds=min_seconds,
                 max_seconds=max_seconds,
+                words=transcript_words,
+                clip_index=moment_idx,
             )
+            window_text = _window_text(segments, nstart, nend)
+            vscore = _compute_virality_score(window_text)
+            nstart, nend = _apply_score_based_duration_cap(nstart, nend, vscore, max_seconds)
             moments.append(
                 {
                     "title": str(raw_moment.get("title", "Momento viral")).strip(),
                     "reason": str(raw_moment.get("reason", "")).strip(),
                     "score": float(raw_moment.get("score", 50.0)),
+                    "virality_score": vscore,
                     "start": nstart,
                     "end": nend,
                 }

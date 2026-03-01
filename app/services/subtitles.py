@@ -146,6 +146,16 @@ def _wrap_centered_text(text: str, max_chars_per_line: int, max_lines: int) -> s
     return "\n".join(lines)
 
 
+_PUNCTUATION_BREAK = frozenset(".?!,")
+_PAUSE_BREAK_SECONDS = 0.4
+
+
+def _word_ends_phrase(word: str) -> bool:
+    """Return True if the word ends with a phrase-boundary punctuation character."""
+    stripped = word.rstrip()
+    return bool(stripped) and stripped[-1] in _PUNCTUATION_BREAK
+
+
 def _select_phrase_chunk_size(
     timed_words: list[dict],
     cursor: int,
@@ -161,24 +171,43 @@ def _select_phrase_chunk_size(
     if available <= 0:
         return 0
 
+    # Hard cap: never exceed chunk_max (3) words per subtitle line.
     max_size = min(chunk_max, available)
     if max_size == 1:
         return 1
 
     min_size = max(1, min(chunk_min, max_size))
     hard_pause_for_single = max(pause_split_seconds * 2.0, pause_split_seconds + 0.28)
+    # Use the larger of the config pause threshold and the hard-coded 0.4s boundary.
+    effective_pause_split = max(pause_split_seconds, _PAUSE_BREAK_SECONDS)
     best_fit = 0
+    punctuation_choice = 0
     pause_choice = 0
 
-    # Select phrase size by visual fit + natural pauses between words.
+    # Select phrase size by visual fit + natural pauses + punctuation between words.
     for size in range(1, max_size + 1):
         phrase = " ".join(item["word"] for item in timed_words[cursor : cursor + size]).strip()
         if subtitle_uppercase:
             phrase = phrase.upper()
-        wrapped = _wrap_words(phrase.split(), max_chars_per_line)
+        words_in_phrase = phrase.split()
+
+        # Hard character cap per line: if a single word already exceeds the limit,
+        # accept it as a 1-word line. If adding another word would exceed the cap
+        # and we already have min_size words, stop here.
+        phrase_chars = len(phrase)
+        if size > 1 and phrase_chars > max_chars_per_line and best_fit >= 1:
+            break
+
+        wrapped = _wrap_words(words_in_phrase, max_chars_per_line)
         if max_lines > 0 and len(wrapped) > max_lines:
             break
         best_fit = size
+
+        # Check for a punctuation boundary at the end of this word.
+        current_word = str(timed_words[cursor + size - 1].get("word", ""))
+        if size >= min_size and _word_ends_phrase(current_word):
+            punctuation_choice = size
+            break
 
         next_index = cursor + size
         if next_index >= len(timed_words):
@@ -187,12 +216,15 @@ def _select_phrase_chunk_size(
         gap_after = float(timed_words[next_index]["start"]) - float(timed_words[next_index - 1]["end"])
         if size == 1 and gap_after >= hard_pause_for_single:
             return 1
-        if size >= min_size and gap_after >= pause_split_seconds:
+        if size >= min_size and gap_after >= effective_pause_split:
             pause_choice = size
             break
 
     if best_fit == 0:
         return 0
+    # Punctuation break takes highest priority.
+    if punctuation_choice:
+        return punctuation_choice
     if pause_choice:
         return pause_choice
     if best_fit <= min_size:

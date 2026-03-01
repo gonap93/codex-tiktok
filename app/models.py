@@ -134,6 +134,7 @@ class ClipArtifact(BaseModel):
     thumbnail_url: str = ""
     transcript_excerpt: str = ""
     score: float = 0.0
+    virality_score: float = 0.0
     review_status: Literal["pending", "approved", "rejected"] = "pending"
     rejection_reason: str = ""
     publish_status: Literal["not_published", "publishing", "published", "failed"] = "not_published"
