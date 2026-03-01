@@ -417,8 +417,8 @@ def _postiz_tiktok_connect_url() -> str:
 
 
 def _postiz_manage_integrations_url() -> str:
-    """URL to manage integrations (Settings page in newer Postiz versions)."""
-    return f"{_postiz_base_app_url()}/settings"
+    """URL to manage integrations (Calendar > Channels in Postiz)."""
+    return _postiz_base_app_url()
 
 
 @app.get("/api/publishing/tiktok/integrations")
