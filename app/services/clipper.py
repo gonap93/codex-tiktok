@@ -47,10 +47,8 @@ def build_subtitle_filter(
     subtitle_file = escape_filter_path(subtitles_path)
     font_name_raw = subtitle_font_name or settings.subtitle_font_name
     normalized_font_name = _normalize_font_name(font_name_raw)
-    font_name = normalized_font_name.replace("'", r"\'")
 
-    # Use bundled font dir only when rendering the bundled family (Inter).
-    # Otherwise, rely on system font lookup for the selected family.
+    # Resolve bundled fonts dir (needed for both ASS and SRT to find Inter).
     font_file_raw = str(getattr(settings, "subtitle_font_file", "")).strip()
     fonts_dir_fragment = ""
     if font_file_raw and normalized_font_name.lower() == "inter":
@@ -59,6 +57,16 @@ def build_subtitle_filter(
             font_file_path = (Path.cwd() / font_file_path).resolve()
         if font_file_path.exists():
             fonts_dir_fragment = f"fontsdir='{escape_filter_path(font_file_path.parent)}':"
+
+    # ASS files: style is fully embedded — no force_style or original_size needed.
+    if subtitles_path.suffix.lower() == ".ass":
+        base = f"subtitles='{subtitle_file}'"
+        if fonts_dir_fragment:
+            base += f":{fonts_dir_fragment.rstrip(':')}"
+        return base
+
+    # SRT files: use force_style (kept for preview.py and backward compat).
+    font_name = normalized_font_name.replace("'", r"\'")
     requested_font_size = max(8, int(subtitle_font_size or settings.subtitle_font_size))
     render_scale = max(0.1, min(2.0, float(getattr(settings, "subtitle_font_render_scale", 0.45))))
     font_size = max(8, int(round(requested_font_size * render_scale)))
@@ -113,16 +121,18 @@ def render_vertical_clip(
     target_w = max(320, int(output_width or settings.output_width))
     target_h = max(320, int(output_height or settings.output_height))
 
-    # Compute subtitle font size (same logic as build_subtitle_filter) for logging
+    # Compute subtitle font size for logging
     requested_font_size = max(8, int(subtitle_font_size or settings.subtitle_font_size))
     render_scale = max(0.1, min(2.0, float(getattr(settings, "subtitle_font_render_scale", 0.45))))
     effective_font_size = max(8, int(round(requested_font_size * render_scale)))
+    native_px = max(20, int(round(effective_font_size * target_h / 288.0)))
     logger.info(
-        "clip=%s subtitle_size requested=%s render_scale=%s effective=%s resolution=%sx%s",
+        "clip=%s subtitle_size requested=%s render_scale=%s effective=%s native_px=%s resolution=%sx%s",
         output_clip_path.name,
         requested_font_size,
         render_scale,
         effective_font_size,
+        native_px,
         target_w,
         target_h,
     )

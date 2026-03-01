@@ -9,7 +9,7 @@ from app.services.analyzer import choose_viral_moments
 from app.services.clipper import render_clip_thumbnail, render_vertical_clip
 from app.services.downloader import download_youtube_video
 from app.services.state import add_clip, add_log, get_job, set_progress, start_new_generation
-from app.services.subtitles import build_srt_for_clip
+from app.services.subtitles import build_ass_for_clip
 from app.services.transcriber import transcribe_video
 
 MOMENTS_POOL_FILE = "moments_pool.json"
@@ -207,18 +207,24 @@ async def _render_moments_as_clips(
             current_step=f"Generando clip {idx}/{clip_count}",
         )
 
-        subtitles_path = job_dir / f"clip_g{generation:02d}_{idx:02d}.srt"
+        subtitles_path = job_dir / f"clip_g{generation:02d}_{idx:02d}.ass"
         clip_path = job_dir / f"clip_g{generation:02d}_{idx:02d}.mp4"
         thumb_path = job_dir / f"clip_g{generation:02d}_{idx:02d}.jpg"
 
         await asyncio.to_thread(
-            build_srt_for_clip,
+            build_ass_for_clip,
             transcript["segments"],
             start,
             end,
             subtitles_path,
             settings,
             transcript.get("words", []),
+            subtitle_font_name=subtitle_font_name,
+            subtitle_font_size=subtitle_font_size,
+            subtitle_margin_horizontal=subtitle_margin_horizontal,
+            subtitle_margin_vertical=subtitle_margin_vertical,
+            output_width=output_width,
+            output_height=output_height,
         )
         await asyncio.to_thread(
             render_vertical_clip,
