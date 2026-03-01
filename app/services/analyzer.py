@@ -260,7 +260,7 @@ def _strip_accents_lower(text: str) -> str:
     of whether Whisper preserved accents in the output."""
     table = str.maketrans(
         "\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc\u00c1\u00c9\u00cd\u00d3\u00da\u00dc\u00f1\u00d1",
-        "aeiouuAEIOUUunN",
+        "aeiouuAEIOUUnN",
     )
     return text.lower().translate(table)
 

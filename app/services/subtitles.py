@@ -1,7 +1,10 @@
+import logging
 import re
 from pathlib import Path
 
 from app.config import Settings
+
+log = logging.getLogger(__name__)
 
 
 def _format_srt_time(seconds: float) -> str:
@@ -107,7 +110,10 @@ def _timed_word_coverage_seconds(timed_words: list[dict]) -> float:
     return coverage
 
 
-def _wrap_words(words: list[str], max_chars_per_line: int) -> list[str]:
+_MAX_WORDS_PER_LINE = 3  # Hard cap: never more than 3 words on a single subtitle line.
+
+
+def _wrap_words(words: list[str], max_chars_per_line: int, max_words_per_line: int = _MAX_WORDS_PER_LINE) -> list[str]:
     if not words:
         return []
     if max_chars_per_line <= 8:
@@ -118,7 +124,8 @@ def _wrap_words(words: list[str], max_chars_per_line: int) -> list[str]:
     current_len = 0
     for word in words:
         projected = len(word) if not current else current_len + 1 + len(word)
-        if current and projected > max_chars_per_line:
+        # Break when char limit OR word-count limit is reached.
+        if current and (projected > max_chars_per_line or len(current) >= max_words_per_line):
             lines.append(" ".join(current))
             current = [word]
             current_len = len(word)
@@ -130,19 +137,19 @@ def _wrap_words(words: list[str], max_chars_per_line: int) -> list[str]:
     return lines
 
 
-def _wrap_centered_text(text: str, max_chars_per_line: int, max_lines: int) -> str:
+def _wrap_centered_text(text: str, max_chars_per_line: int, max_lines: int, max_words_per_line: int = _MAX_WORDS_PER_LINE) -> str:
     words = text.split()
     if not words:
         return text
 
     if max_lines <= 0:
-        return "\n".join(_wrap_words(words, max_chars_per_line))
+        return "\n".join(_wrap_words(words, max_chars_per_line, max_words_per_line))
 
     start_idx = 0
-    lines = _wrap_words(words, max_chars_per_line)
+    lines = _wrap_words(words, max_chars_per_line, max_words_per_line)
     while len(lines) > max_lines and start_idx < len(words) - 1:
         start_idx += 1
-        lines = _wrap_words(words[start_idx:], max_chars_per_line)
+        lines = _wrap_words(words[start_idx:], max_chars_per_line, max_words_per_line)
     return "\n".join(lines)
 
 
@@ -166,12 +173,12 @@ def _select_phrase_chunk_size(
     max_lines: int,
     subtitle_uppercase: bool,
     pause_split_seconds: float,
+    max_words_per_line: int = _MAX_WORDS_PER_LINE,
 ) -> int:
     available = len(timed_words) - cursor
     if available <= 0:
         return 0
 
-    # Hard cap: never exceed chunk_max (3) words per subtitle line.
     max_size = min(chunk_max, available)
     if max_size == 1:
         return 1
@@ -184,21 +191,16 @@ def _select_phrase_chunk_size(
     punctuation_choice = 0
     pause_choice = 0
 
-    # Select phrase size by visual fit + natural pauses + punctuation between words.
+    # Select phrase size by visual fit (line-wrap count) + natural pauses + punctuation.
+    # NOTE: we do NOT break on total phrase chars — the per-line char+word caps enforced
+    # inside _wrap_words are sufficient. Breaking on phrase chars prevented multi-line cues.
     for size in range(1, max_size + 1):
         phrase = " ".join(item["word"] for item in timed_words[cursor : cursor + size]).strip()
         if subtitle_uppercase:
             phrase = phrase.upper()
         words_in_phrase = phrase.split()
 
-        # Hard character cap per line: if a single word already exceeds the limit,
-        # accept it as a 1-word line. If adding another word would exceed the cap
-        # and we already have min_size words, stop here.
-        phrase_chars = len(phrase)
-        if size > 1 and phrase_chars > max_chars_per_line and best_fit >= 1:
-            break
-
-        wrapped = _wrap_words(words_in_phrase, max_chars_per_line)
+        wrapped = _wrap_words(words_in_phrase, max_chars_per_line, max_words_per_line)
         if max_lines > 0 and len(wrapped) > max_lines:
             break
         best_fit = size
@@ -272,6 +274,9 @@ def build_srt_for_clip(
     chunk_min = max(1, settings.subtitle_chunk_min_words)
     chunk_max = max(chunk_min, settings.subtitle_chunk_max_words)
     max_lines = max(1, int(getattr(settings, "subtitle_max_lines", 2)))
+    # Hard limit: no single subtitle line ever gets more than _MAX_WORDS_PER_LINE words,
+    # regardless of what chunk_max or max_chars_per_line settings say.
+    max_words_per_line = _MAX_WORDS_PER_LINE
     timing_shift = float(settings.subtitle_timing_shift_seconds)
     pause_split_seconds = max(0.12, float(getattr(settings, "subtitle_phrase_pause_split_seconds", 0.34)))
     clip_duration_ms = max(1, _seconds_to_ms(clip_duration))
@@ -281,6 +286,7 @@ def build_srt_for_clip(
     subtitle_index = 1
     cursor = 0
     last_cue_end_ms = 0
+    logged_chunks = 0
     while cursor < len(timed_words):
         chunk_size = _select_phrase_chunk_size(
             timed_words,
@@ -291,6 +297,7 @@ def build_srt_for_clip(
             max_lines=max_lines,
             subtitle_uppercase=settings.subtitle_uppercase,
             pause_split_seconds=pause_split_seconds,
+            max_words_per_line=max_words_per_line,
         )
         chunk_size = min(chunk_size, chunk_max)
         if chunk_size <= 0:
@@ -326,7 +333,20 @@ def build_srt_for_clip(
         visible_words = " ".join(item["word"] for item in chunk).strip()
         if settings.subtitle_uppercase:
             visible_words = visible_words.upper()
-        text = _wrap_centered_text(visible_words, settings.subtitle_max_chars_per_line, max_lines)
+        text = _wrap_centered_text(visible_words, settings.subtitle_max_chars_per_line, max_lines, max_words_per_line)
+
+        # Log first 5 chunks for debugging / verification.
+        if logged_chunks < 5:
+            word_list = visible_words.split()
+            per_line = [ln for ln in text.split("\n") if ln]
+            max_line_chars = max((len(ln) for ln in per_line), default=0)
+            max_line_words = max((len(ln.split()) for ln in per_line), default=0)
+            log.info(
+                "subtitle chunk %d: %d words → %r (lines=%d, max_chars=%d, max_words=%d)",
+                logged_chunks + 1, len(word_list), text, len(per_line), max_line_chars, max_line_words,
+            )
+            logged_chunks += 1
+
         lines.append(str(subtitle_index))
         lines.append(f"{_format_srt_time(start_ms / 1000)} --> {_format_srt_time(end_ms / 1000)}")
         lines.append(text)
