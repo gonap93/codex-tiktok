@@ -298,16 +298,20 @@ def build_ass_for_clip(
 
     play_res_x = max(320, int(output_width or settings.output_width))
     play_res_y = max(320, int(output_height or settings.output_height))
-    margin_h = max(20, int(subtitle_margin_horizontal if subtitle_margin_horizontal is not None else settings.subtitle_margin_horizontal))
-    margin_v = max(0, int(subtitle_margin_vertical if subtitle_margin_vertical is not None else settings.subtitle_margin_vertical))
     letter_spacing = max(0.0, float(settings.subtitle_letter_spacing))
 
-    # Font size: convert from legacy PlayRes=288 space to native resolution pixels.
-    # This preserves the same apparent size as the old SRT+force_style approach.
+    # Font size + margins: convert from legacy PlayRes=288/384 space to native resolution
+    # pixels. This preserves the same apparent position as the old SRT+force_style approach
+    # (where libass internally uses PlayRes=288x384 and scales to the output frame).
     requested_size = max(8, int(subtitle_font_size or settings.subtitle_font_size))
     render_scale = max(0.1, min(2.0, float(getattr(settings, "subtitle_font_render_scale", 0.45))))
     effective_size = max(8, int(round(requested_size * render_scale)))
     native_font_size = max(20, int(round(effective_size * play_res_y / 288.0)))
+
+    raw_margin_v = int(subtitle_margin_vertical if subtitle_margin_vertical is not None else settings.subtitle_margin_vertical)
+    raw_margin_h = int(subtitle_margin_horizontal if subtitle_margin_horizontal is not None else settings.subtitle_margin_horizontal)
+    native_margin_v = max(0, int(round(raw_margin_v * play_res_y / 288.0)))
+    native_margin_h = max(20, int(round(raw_margin_h * play_res_x / 384.0)))
 
     font_name_raw = " ".join((subtitle_font_name or settings.subtitle_font_name).split()).strip() or "Inter"
     font_name = _ASS_FONT_NAME_MAP.get(font_name_raw.lower(), font_name_raw)
@@ -331,7 +335,7 @@ def build_ass_for_clip(
         f"Style: Default,{font_name},{native_font_size},"
         f"&H00FFFFFF,&H00FFFFFF,&H00FFFFFF,&H00000000,"
         f"-1,0,0,0,100,100,{letter_spacing:.2f},0,1,0,0,2,"
-        f"{margin_h},{margin_h},{margin_v},1",
+        f"{native_margin_h},{native_margin_h},{native_margin_v},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
