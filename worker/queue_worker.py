@@ -76,7 +76,7 @@ async def _sync_job_status(supabase: Client, supabase_job_id: str, local_job_id:
         else:
             status = "clipping"
 
-    update: dict = {"status": status}
+    update: dict = {"status": status, "logs": job.logs or []}
     if job.error:
         update["error_message"] = job.error
 
