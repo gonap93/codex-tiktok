@@ -289,10 +289,11 @@ async def _process_posting(supabase: Client, row: dict) -> None:
                     log.info("Posting %s → posted via direct TikTok (publish_id=%s)", posting_id, post_id)
                     used_direct = True
                 except (TikTokDirectError, Exception) as direct_exc:
-                    log.warning("Direct TikTok failed for posting %s, falling back to Postiz: %s", posting_id, direct_exc)
+                    log.warning("Direct TikTok failed for posting %s: %s", posting_id, direct_exc)
+                    raise RuntimeError(f"Direct TikTok posting failed: {direct_exc}") from direct_exc
 
         if not used_direct:
-            # Fallback: Postiz
+            # No direct TikTok connection — use Postiz
             result = await asyncio.to_thread(
                 publish_clip,
                 clip_path,
