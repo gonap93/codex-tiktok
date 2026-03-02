@@ -36,6 +36,7 @@ from app.services.pipeline import run_job
 from app.services.postiz import generate_caption, publish_clip
 from app.services.r2 import upload_clip
 from app.services.state import create_job, get_job
+from app.services.tiktok_direct import get_valid_tiktok_token, init_direct_post, TikTokDirectError
 
 log = logging.getLogger("blipr.worker")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -261,22 +262,55 @@ async def _process_posting(supabase: Client, row: dict) -> None:
 
         title = stored_title or clip_row.get("title") or f"Clip {clip_index}"
 
-        # Publish via Postiz → TikTok
-        result = await asyncio.to_thread(
-            publish_clip,
-            clip_path,
-            f"{local_job_id}:{clip_index}",
-            caption,
-            title,
-            None,
-            settings,
-        )
-        post_id = str(result.get("post_id", ""))
-        supabase.table("postings").update({
-            "status": "posted",
-            "postiz_job_id": post_id,
-        }).eq("id", posting_id).execute()
-        log.info("Posting %s → posted (post_id=%s)", posting_id, post_id)
+        # Determine posting method: direct TikTok (if user has connected account) or Postiz fallback
+        # Look up user_id from clip → job chain
+        job_row = supabase.table("jobs").select("user_id").eq("id", clip_row["job_id"]).single().execute()
+        user_id = job_row.data.get("user_id") if job_row.data else None
+
+        used_direct = False
+        if user_id:
+            # Check if user has a direct TikTok connection
+            acct = supabase.table("social_accounts").select("id").eq("user_id", user_id).eq("platform", "tiktok").single().execute()
+            if acct.data:
+                try:
+                    token = await asyncio.to_thread(get_valid_tiktok_token, user_id)
+                    r2_url = clip_row.get("r2_video_url", "")
+                    if not r2_url:
+                        raise RuntimeError("Clip has no R2 video URL for direct posting")
+                    direct_result = await asyncio.to_thread(
+                        init_direct_post,
+                        token,
+                        r2_url,
+                        title,
+                        "SELF_ONLY",
+                    )
+                    post_id = str(direct_result.get("publish_id", ""))
+                    supabase.table("postings").update({
+                        "status": "posted",
+                        "postiz_job_id": post_id,
+                    }).eq("id", posting_id).execute()
+                    log.info("Posting %s → posted via direct TikTok (publish_id=%s)", posting_id, post_id)
+                    used_direct = True
+                except (TikTokDirectError, Exception) as direct_exc:
+                    log.warning("Direct TikTok failed for posting %s, falling back to Postiz: %s", posting_id, direct_exc)
+
+        if not used_direct:
+            # Fallback: Postiz
+            result = await asyncio.to_thread(
+                publish_clip,
+                clip_path,
+                f"{local_job_id}:{clip_index}",
+                caption,
+                title,
+                None,
+                settings,
+            )
+            post_id = str(result.get("post_id", ""))
+            supabase.table("postings").update({
+                "status": "posted",
+                "postiz_job_id": post_id,
+            }).eq("id", posting_id).execute()
+            log.info("Posting %s → posted via Postiz (post_id=%s)", posting_id, post_id)
 
     except Exception as exc:
         log.error("Posting %s failed: %s", posting_id, exc)
