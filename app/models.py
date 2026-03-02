@@ -109,6 +109,24 @@ class BulkClipPublishResult(BaseModel):
     error: str = ""
 
 
+class DirectPublishTikTokRequest(BaseModel):
+    user_id: str
+    video_url: str
+    title: str = ""
+    privacy_level: str = "SELF_ONLY"
+
+
+class DirectPublishTikTokResponse(BaseModel):
+    success: bool
+    publish_id: str = ""
+    error: str = ""
+
+
+class DirectPublishStatusRequest(BaseModel):
+    user_id: str
+    publish_id: str
+
+
 class SubtitlePreviewRequest(BaseModel):
     subtitle_font_name: str | None = Field(default=None, min_length=1, max_length=64)
     subtitle_font_size: int | None = Field(default=None, ge=16, le=96)

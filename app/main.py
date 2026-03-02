@@ -12,6 +12,9 @@ from app.models import (
     BulkClipPublishResult,
     BulkPublishTikTokRequest,
     ClipReviewRequest,
+    DirectPublishStatusRequest,
+    DirectPublishTikTokRequest,
+    DirectPublishTikTokResponse,
     GenerateCaptionRequest,
     GenerateCaptionResponse,
     JobCreateRequest,
@@ -41,6 +44,7 @@ from app.services.state import (
 from app.services.postiz import PostizPublisherError as PostizError
 from app.services.postiz import generate_caption as gen_caption
 from app.services.postiz import publish_clip as postiz_publish_clip
+from app.services.tiktok_direct import TikTokDirectError, get_valid_tiktok_token, query_creator_info, init_direct_post, fetch_publish_status
 from app.services.tiktok_publisher import PostizPublisherError, list_tiktok_integrations, publish_to_tiktok
 
 settings = get_settings()
@@ -571,3 +575,48 @@ async def publish_tiktok_bulk(payload: BulkPublishTikTokRequest) -> list[BulkCli
     return results
 
 
+@app.post("/api/publish/tiktok/direct", response_model=DirectPublishTikTokResponse)
+async def publish_tiktok_direct(payload: DirectPublishTikTokRequest) -> DirectPublishTikTokResponse:
+    try:
+        token = await asyncio.to_thread(get_valid_tiktok_token, payload.user_id)
+    except TikTokDirectError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Query creator info to validate privacy level
+    try:
+        creator_info = await asyncio.to_thread(query_creator_info, token)
+        allowed = creator_info.get("privacy_level_options", [])
+        if allowed and payload.privacy_level not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Privacy level '{payload.privacy_level}' not allowed. Options: {allowed}",
+            )
+    except TikTokDirectError:
+        pass  # Non-fatal: proceed with requested privacy level
+
+    try:
+        result = await asyncio.to_thread(
+            init_direct_post,
+            token,
+            payload.video_url,
+            payload.title,
+            payload.privacy_level,
+        )
+        publish_id = result.get("publish_id", "")
+        return DirectPublishTikTokResponse(success=True, publish_id=publish_id)
+    except TikTokDirectError as exc:
+        return DirectPublishTikTokResponse(success=False, error=str(exc))
+
+
+@app.post("/api/publish/tiktok/direct/status")
+async def publish_tiktok_direct_status(payload: DirectPublishStatusRequest) -> dict:
+    try:
+        token = await asyncio.to_thread(get_valid_tiktok_token, payload.user_id)
+    except TikTokDirectError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        status = await asyncio.to_thread(fetch_publish_status, token, payload.publish_id)
+        return {"success": True, **status}
+    except TikTokDirectError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

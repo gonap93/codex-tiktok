@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     postiz_tiktok_disable_stitch: bool = Field(default=False)
     postiz_request_timeout_seconds: float = Field(default=60.0)
 
+    tiktok_client_key: str = Field(default="")
+    tiktok_client_secret: str = Field(default="")
+    supabase_url: str = Field(default="")
+    supabase_service_role_key: str = Field(default="")
+
     r2_account_id: str = Field(default="")
     r2_access_key_id: str = Field(default="")
     r2_secret_access_key: str = Field(default="")
