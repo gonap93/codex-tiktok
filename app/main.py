@@ -44,7 +44,7 @@ from app.services.state import (
 from app.services.postiz import PostizPublisherError as PostizError
 from app.services.postiz import generate_caption as gen_caption
 from app.services.postiz import publish_clip as postiz_publish_clip
-from app.services.tiktok_direct import TikTokDirectError, get_valid_tiktok_token, query_creator_info, init_direct_post, fetch_publish_status
+from app.services.tiktok_direct import TikTokDirectError, get_valid_tiktok_token, query_creator_info, download_and_publish, fetch_publish_status
 from app.services.tiktok_publisher import PostizPublisherError, list_tiktok_integrations, publish_to_tiktok
 
 settings = get_settings()
@@ -596,7 +596,7 @@ async def publish_tiktok_direct(payload: DirectPublishTikTokRequest) -> DirectPu
 
     try:
         result = await asyncio.to_thread(
-            init_direct_post,
+            download_and_publish,
             token,
             payload.video_url,
             payload.title,

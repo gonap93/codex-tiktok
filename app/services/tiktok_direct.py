@@ -99,13 +99,13 @@ def query_creator_info(access_token: str) -> dict:
     return data.get("data", {})
 
 
-def init_direct_post(
+def init_file_upload(
     access_token: str,
-    video_url: str,
+    video_size: int,
     title: str = "",
     privacy_level: str = "SELF_ONLY",
 ) -> dict:
-    """Initialize a direct post to TikTok using PULL_FROM_URL."""
+    """Initialize a file upload post to TikTok. Returns upload_url and publish_id."""
     post_info: dict = {
         "privacy_level": privacy_level,
         "title": (title or "")[:150],
@@ -114,8 +114,10 @@ def init_direct_post(
     payload = {
         "post_info": post_info,
         "source_info": {
-            "source": "PULL_FROM_URL",
-            "video_url": video_url,
+            "source": "FILE_UPLOAD",
+            "video_size": video_size,
+            "chunk_size": video_size,  # single chunk upload
+            "total_chunk_count": 1,
         },
     }
 
@@ -138,6 +140,83 @@ def init_direct_post(
         raise TikTokDirectError(f"Post init error: {err.get('message', err.get('code', 'unknown'))}")
 
     return data.get("data", {})
+
+
+def upload_video_to_tiktok(upload_url: str, video_data: bytes) -> None:
+    """Upload video bytes to TikTok's upload URL."""
+    video_size = len(video_data)
+    headers = {
+        "Content-Range": f"bytes 0-{video_size - 1}/{video_size}",
+        "Content-Length": str(video_size),
+        "Content-Type": "video/mp4",
+    }
+
+    with httpx.Client(timeout=300) as client:
+        resp = client.put(upload_url, headers=headers, content=video_data)
+
+    if resp.status_code not in (200, 201):
+        raise TikTokDirectError(f"Video upload failed: HTTP {resp.status_code} — {resp.text}")
+
+
+def publish_video_file(
+    access_token: str,
+    video_path: str,
+    title: str = "",
+    privacy_level: str = "SELF_ONLY",
+) -> dict:
+    """Full file upload flow: init → upload bytes → return publish_id."""
+    import os
+    video_size = os.path.getsize(video_path)
+    if video_size == 0:
+        raise TikTokDirectError("Video file is empty")
+
+    # Step 1: Init upload
+    init_data = init_file_upload(access_token, video_size, title, privacy_level)
+    upload_url = init_data.get("upload_url")
+    publish_id = init_data.get("publish_id", "")
+
+    if not upload_url:
+        raise TikTokDirectError(f"No upload_url in init response: {init_data}")
+
+    # Step 2: Upload video bytes
+    with open(video_path, "rb") as f:
+        video_data = f.read()
+
+    upload_video_to_tiktok(upload_url, video_data)
+
+    return {"publish_id": publish_id}
+
+
+def download_and_publish(
+    access_token: str,
+    video_url: str,
+    title: str = "",
+    privacy_level: str = "SELF_ONLY",
+) -> dict:
+    """Download video from URL, then upload to TikTok via file upload."""
+    # Download video from R2/URL
+    with httpx.Client(timeout=120, follow_redirects=True) as client:
+        resp = client.get(video_url)
+    if resp.status_code != 200:
+        raise TikTokDirectError(f"Failed to download video from {video_url}: HTTP {resp.status_code}")
+
+    video_data = resp.content
+    video_size = len(video_data)
+    if video_size == 0:
+        raise TikTokDirectError("Downloaded video is empty")
+
+    # Init upload
+    init_data = init_file_upload(access_token, video_size, title, privacy_level)
+    upload_url = init_data.get("upload_url")
+    publish_id = init_data.get("publish_id", "")
+
+    if not upload_url:
+        raise TikTokDirectError(f"No upload_url in init response: {init_data}")
+
+    # Upload
+    upload_video_to_tiktok(upload_url, video_data)
+
+    return {"publish_id": publish_id}
 
 
 def fetch_publish_status(access_token: str, publish_id: str) -> dict:

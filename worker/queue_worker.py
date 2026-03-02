@@ -36,7 +36,7 @@ from app.services.pipeline import run_job
 from app.services.postiz import generate_caption, publish_clip
 from app.services.r2 import upload_clip
 from app.services.state import create_job, get_job
-from app.services.tiktok_direct import get_valid_tiktok_token, init_direct_post, TikTokDirectError
+from app.services.tiktok_direct import get_valid_tiktok_token, publish_video_file, TikTokDirectError
 
 log = logging.getLogger("blipr.worker")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -274,13 +274,10 @@ async def _process_posting(supabase: Client, row: dict) -> None:
             if acct.data:
                 try:
                     token = await asyncio.to_thread(get_valid_tiktok_token, user_id)
-                    r2_url = clip_row.get("r2_video_url", "")
-                    if not r2_url:
-                        raise RuntimeError("Clip has no R2 video URL for direct posting")
                     direct_result = await asyncio.to_thread(
-                        init_direct_post,
+                        publish_video_file,
                         token,
-                        r2_url,
+                        clip_path,
                         title,
                         "SELF_ONLY",
                     )
