@@ -105,12 +105,12 @@ def init_file_upload(
     title: str = "",
     privacy_level: str = "SELF_ONLY",
 ) -> dict:
-    """Initialize a direct file upload post to TikTok. Returns upload_url and publish_id."""
+    """Initialize a file upload to TikTok inbox (drafts).
+
+    Uses the inbox endpoint which works for unaudited apps.
+    Once the app passes audit, switch to /v2/post/publish/video/init/ for direct posting.
+    """
     payload = {
-        "post_info": {
-            "privacy_level": privacy_level,
-            "title": (title or "")[:150],
-        },
         "source_info": {
             "source": "FILE_UPLOAD",
             "video_size": video_size,
@@ -121,7 +121,7 @@ def init_file_upload(
 
     with httpx.Client(timeout=30) as client:
         resp = client.post(
-            "https://open.tiktokapis.com/v2/post/publish/video/init/",
+            "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json; charset=UTF-8",
