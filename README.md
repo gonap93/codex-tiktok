@@ -34,29 +34,9 @@ source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
-Terminal 2 (frontend React):
+Docs API: `http://127.0.0.1:8000/docs`
 
-```bash
-cd frontend
-npm run dev
-```
-
-Abri:
-
-- Web UI React: `http://127.0.0.1:5173`
-- Docs API: `http://127.0.0.1:8000/docs`
-
-## Build frontend y servir desde FastAPI
-
-```bash
-cd frontend
-npm run build
-cd ..
-uvicorn app.main:app --reload
-```
-
-Con build generado, FastAPI sirve `frontend/dist` en `http://127.0.0.1:8000`.
-Si no existe `frontend/dist`, se mantiene fallback al `static/index.html`.
+Frontend is a separate Next.js app (`blipr-web/`) deployed to Vercel.
 
 ## Postiz self-hosted local (TikTok)
 

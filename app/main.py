@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
@@ -61,34 +61,6 @@ app.add_middleware(
 
 app.mount("/jobs", StaticFiles(directory=str(settings.jobs_dir)), name="jobs")
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
-app.mount(
-    "/assets",
-    StaticFiles(directory=str(settings.frontend_dist_dir / "assets"), check_dir=False),
-    name="frontend-assets",
-)
-
-
-def _frontend_index_path() -> Path:
-    dist_index = settings.frontend_dist_dir / "index.html"
-    if dist_index.exists():
-        return dist_index
-    return settings.static_dir / "index.html"
-
-
-def _is_reserved_path(path: str) -> bool:
-    return path.startswith("api/") or path.startswith("jobs/") or path.startswith("static/") or path.startswith("assets/")
-
-
-def _safe_file_candidate(root: Path, relative_path: str) -> Path | None:
-    if not relative_path:
-        return None
-    candidate = (root / relative_path).resolve()
-    root_resolved = root.resolve()
-    if not candidate.is_relative_to(root_resolved):
-        return None
-    if candidate.is_file():
-        return candidate
-    return None
 
 
 def _normalize_output_size(width: int, height: int) -> tuple[int, int]:
@@ -128,11 +100,6 @@ async def _cancel_job_task(job_id: str) -> None:
         pass
     except Exception:
         pass
-
-
-@app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(_frontend_index_path())
 
 
 @app.post("/api/jobs", response_model=JobCreateResponse)
@@ -604,22 +571,3 @@ async def publish_tiktok_bulk(payload: BulkPublishTikTokRequest) -> list[BulkCli
     return results
 
 
-@app.get("/{full_path:path}")
-async def spa_fallback(full_path: str) -> FileResponse:
-    if _is_reserved_path(full_path):
-        raise HTTPException(status_code=404, detail="Recurso no encontrado.")
-
-    dist_root = settings.frontend_dist_dir
-    dist_candidate = _safe_file_candidate(dist_root, full_path)
-    if dist_candidate is not None:
-        return FileResponse(dist_candidate)
-    if Path(full_path).suffix:
-        raise HTTPException(status_code=404, detail="Recurso no encontrado.")
-    dist_index = dist_root / "index.html"
-    if dist_index.exists():
-        return FileResponse(dist_index)
-
-    static_candidate = _safe_file_candidate(settings.static_dir, full_path)
-    if static_candidate is not None:
-        return FileResponse(static_candidate)
-    raise HTTPException(status_code=404, detail="Recurso no encontrado.")

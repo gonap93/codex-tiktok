@@ -77,7 +77,7 @@ class Settings(BaseSettings):
 
     jobs_dir: Path = Field(default=Path("jobs"))
     static_dir: Path = Field(default=Path("static"))
-    frontend_dist_dir: Path = Field(default=Path("frontend/dist"))
+
 
 
 def get_settings() -> Settings:

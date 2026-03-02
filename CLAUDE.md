@@ -22,31 +22,18 @@ app/
     state.py          — in-memory job state (lost on restart)
     preview.py        — subtitle preview rendering
 
-frontend/src/
-  App.tsx             — routing (activePage state), caption generation, publish handlers
-  components/
-    PipelinePanel.tsx — job progress + clip review
-    ClipReviewTable.tsx — approve/reject clips, publish form per clip
-    ChannelsPage.tsx  — TikTok connection status via /api/publishing/tiktok/integrations
-    OverviewPage.tsx, HistoryPage.tsx, Sidebar.tsx, ...
-
 jobs/<job_id>/        — per-job files on disk (source.mp4, transcript.json, clip_g01_01.mp4, ...)
 postiz/               — Docker Compose for local Postiz dev instance
 ```
 
 ## Dev Setup
 ```bash
-# Backend
+# Backend (API only — no frontend served)
 source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
-
-# Frontend
-cd frontend && npm run dev  # http://127.0.0.1:5173
-
-# Build + serve from FastAPI
-cd frontend && npm run build
-uvicorn app.main:app --reload  # serves frontend/dist
 ```
+
+Frontend is now a separate Next.js app at `blipr-web/` (deployed to Vercel).
 
 ## VPS (Postiz only — Blipr runs locally)
 - Host alias: `hetzner-openclaw` → `178.156.223.0`

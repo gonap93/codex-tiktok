@@ -5,7 +5,6 @@ __pycache__/
 *.pyc
 jobs/
 .DS_Store
-frontend/node_modules/
-frontend/dist/
+
 .venv/
 static/previews/
