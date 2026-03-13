@@ -127,6 +127,22 @@ class DirectPublishStatusRequest(BaseModel):
     publish_id: str
 
 
+class GenerateClipsRequest(BaseModel):
+    clips_count: int | None = Field(default=None, ge=1, le=12)
+    min_clip_seconds: int | None = Field(default=None, ge=5, le=300)
+    max_clip_seconds: int | None = Field(default=None, ge=5, le=300)
+    subtitle_font_name: str | None = Field(default=None, min_length=1, max_length=64)
+    subtitle_margin_horizontal: int | None = Field(default=None, ge=10, le=300)
+    subtitle_margin_vertical: int | None = Field(default=None, ge=10, le=300)
+    output_width: int | None = Field(default=None, ge=320, le=3840)
+    output_height: int | None = Field(default=None, ge=320, le=3840)
+    content_genre: str | None = Field(default=None, max_length=64)
+    specific_moments_instruction: str | None = Field(default=None, max_length=1000)
+    ai_choose_count: bool | None = None
+    video_language: str | None = Field(default=None, max_length=5)
+    subtitle_font_size: int | None = Field(default=None, ge=16, le=96)
+
+
 class SubtitlePreviewRequest(BaseModel):
     subtitle_font_name: str | None = Field(default=None, min_length=1, max_length=64)
     subtitle_font_size: int | None = Field(default=None, ge=16, le=96)
@@ -179,7 +195,7 @@ class JobState(BaseModel):
     requested_subtitle_preset: str = ""
     requested_video_language: str = "es"
     requested_subtitle_font_size: int = 36
-    status: Literal["queued", "running", "failed", "completed"] = "queued"
+    status: Literal["queued", "running", "transcribed", "failed", "completed"] = "queued"
     progress: float = 0.0
     current_step: str = "En cola"
     error: str = ""

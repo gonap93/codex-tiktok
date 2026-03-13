@@ -17,6 +17,7 @@ from app.models import (
     DirectPublishTikTokResponse,
     GenerateCaptionRequest,
     GenerateCaptionResponse,
+    GenerateClipsRequest,
     JobCreateRequest,
     JobCreateResponse,
     PublishApprovedResponse,
@@ -27,7 +28,7 @@ from app.models import (
     SubtitlePreviewRequest,
     SubtitlePreviewResponse,
 )
-from app.services.pipeline import regenerate_job_from_cache, run_job
+from app.services.pipeline import regenerate_job_from_cache, run_clipping_phase, run_job
 from app.services.preview import render_subtitle_preview_image
 from app.services.state import (
     add_log,
@@ -188,7 +189,7 @@ async def stream_job(job_id: str) -> StreamingResponse:
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     # Close the stream once the job reaches a terminal state
                     status = event.get("status") if isinstance(event, dict) else None
-                    if status in ("completed", "failed"):
+                    if status in ("completed", "failed", "transcribed"):
                         break
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
@@ -261,6 +262,60 @@ async def regenerate_job(job_id: str, payload: RegenerateRequest) -> dict:
         "Regeneracion solicitada reutilizando transcripcion/analisis cacheados.",
     )
     task = asyncio.create_task(regenerate_job_from_cache(job_id))
+    _register_job_task(job_id, task)
+    updated = await get_job(job_id)
+    assert updated is not None
+    return updated.model_dump(mode="json")
+
+
+@app.post("/api/jobs/{job_id}/generate-clips")
+async def generate_clips(job_id: str, payload: GenerateClipsRequest) -> dict:
+    job = await get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado.")
+    if job.status != "transcribed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"El job debe estar en estado 'transcribed' para generar clips. Estado actual: {job.status}",
+        )
+
+    requested_clips = payload.clips_count or job.requested_clips_count
+    requested_clips = max(1, min(requested_clips, settings.max_clips_per_job))
+    requested_min = payload.min_clip_seconds or job.requested_min_clip_seconds
+    requested_max = payload.max_clip_seconds or job.requested_max_clip_seconds
+    requested_font = (payload.subtitle_font_name or job.requested_subtitle_font_name).strip() or job.requested_subtitle_font_name
+    requested_margin_h = payload.subtitle_margin_horizontal or job.requested_subtitle_margin_horizontal
+    requested_margin_v = payload.subtitle_margin_vertical or job.requested_subtitle_margin_vertical
+    requested_output_w = payload.output_width or job.requested_output_width
+    requested_output_h = payload.output_height or job.requested_output_height
+    requested_output_w, requested_output_h = _normalize_output_size(requested_output_w, requested_output_h)
+    if requested_min > requested_max:
+        requested_max = requested_min
+
+    regen_genre = (payload.content_genre or "").strip() or None
+    regen_moments_instruction = (payload.specific_moments_instruction or "").strip() or None
+    regen_ai_choose = payload.ai_choose_count
+    regen_video_language = (payload.video_language or "").strip() or None
+    regen_subtitle_font_size = payload.subtitle_font_size
+
+    await update_job_requests(
+        job_id,
+        requested_clips_count=requested_clips,
+        requested_min_clip_seconds=requested_min,
+        requested_max_clip_seconds=requested_max,
+        requested_subtitle_font_name=requested_font,
+        requested_subtitle_margin_horizontal=requested_margin_h,
+        requested_subtitle_margin_vertical=requested_margin_v,
+        requested_output_width=requested_output_w,
+        requested_output_height=requested_output_h,
+        requested_content_genre=regen_genre,
+        requested_specific_moments_instruction=regen_moments_instruction,
+        requested_ai_choose_count=regen_ai_choose,
+        requested_video_language=regen_video_language,
+        requested_subtitle_font_size=regen_subtitle_font_size,
+    )
+    await add_log(job_id, "Generacion de clips iniciada desde transcript cacheado.")
+    task = asyncio.create_task(run_clipping_phase(job_id))
     _register_job_task(job_id, task)
     updated = await get_job(job_id)
     assert updated is not None

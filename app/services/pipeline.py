@@ -467,14 +467,52 @@ async def run_job(job_id: str, youtube_url: str) -> None:
         _save_json(transcript_path, transcript)
         await add_log(job_id, "Transcripcion completada.")
 
-        await set_progress(job_id, progress=42, current_step="Seleccionando momentos virales")
+        await set_progress(job_id, status="transcribed", progress=40, current_step="Transcripcion lista")
+        await add_log(job_id, "Transcripcion completada. Esperando parametros para generar clips.")
+        return  # Pause here — frontend will call /generate-clips to continue
+    except asyncio.CancelledError:
+        await set_progress(
+            job_id,
+            status="failed",
+            progress=100,
+            current_step="Cancelado",
+            error="Proceso cancelado por reinicio manual.",
+        )
+        await add_log(job_id, "Job cancelado por reinicio manual.", level="ERROR")
+        raise
+    except Exception as exc:
+        await set_progress(job_id, status="failed", progress=100, current_step="Error", error=str(exc))
+        await add_log(job_id, f"Fallo del pipeline: {exc}", level="ERROR")
+
+
+async def run_clipping_phase(job_id: str) -> None:
+    settings = get_settings()
+    job_dir = settings.jobs_dir / job_id
+    transcript_path = job_dir / "transcript.json"
+    moments_path = job_dir / "moments.json"
+    pool_path = job_dir / MOMENTS_POOL_FILE
+    used_path = job_dir / USED_MOMENTS_FILE
+    feedback_path = job_dir / REJECTION_FEEDBACK_FILE
+
+    try:
         job = await get_job(job_id)
         if job is None:
-            raise RuntimeError("Job no encontrado durante analisis.")
+            raise RuntimeError("Job no encontrado para generar clips.")
+        source_video_path = _resolve_cached_source_video(job_dir)
+        if source_video_path is None:
+            raise RuntimeError("No se encontro source.* para generar clips.")
+        if not transcript_path.exists():
+            raise RuntimeError("No se encontro transcript.json para generar clips.")
+
+        await set_progress(job_id, status="running", progress=42, current_step="Seleccionando momentos virales")
+
+        transcript = _load_json(transcript_path, {})
+        if "segments" not in transcript:
+            raise RuntimeError("Transcript cache invalido.")
 
         target_clips = int(job.requested_clips_count)
         if job.requested_ai_choose_count or target_clips <= 0:
-            target_clips = 0  # signal auto-choose
+            target_clips = 0
         else:
             target_clips = max(1, target_clips)
         min_clip_seconds = max(5, int(job.requested_min_clip_seconds))
@@ -549,8 +587,8 @@ async def run_job(job_id: str, youtube_url: str) -> None:
             current_step="Cancelado",
             error="Proceso cancelado por reinicio manual.",
         )
-        await add_log(job_id, "Job cancelado por reinicio manual.", level="ERROR")
+        await add_log(job_id, "Generacion de clips cancelada.", level="ERROR")
         raise
     except Exception as exc:
         await set_progress(job_id, status="failed", progress=100, current_step="Error", error=str(exc))
-        await add_log(job_id, f"Fallo del pipeline: {exc}", level="ERROR")
+        await add_log(job_id, f"Fallo generando clips: {exc}", level="ERROR")
